@@ -765,6 +765,27 @@ function sortJobs(criteria) {
     case 'location':
       jobs.sort((a, b) => (a.location || '').localeCompare(b.location || ''));
       break;
+    case 'recruiter':
+      jobs.sort((a, b) => {
+        const aTarget = a.is_partner_company === true ? 1 : 0;
+        const bTarget = b.is_partner_company === true ? 1 : 0;
+        
+        // Sort target companies first
+        if (bTarget !== aTarget) {
+          return bTarget - aTarget;
+        }
+        
+        // Secondary sort: by match score descending
+        const aScore = a.match_score ?? 0;
+        const bScore = b.match_score ?? 0;
+        if (aScore !== bScore) {
+          return bScore - aScore;
+        }
+        
+        // Tertiary sort: alphabetically by company name
+        return (a.companyName || a.company || '').localeCompare(b.companyName || b.company || '');
+      });
+      break;
   }
 
   renderJobCards(jobs);
