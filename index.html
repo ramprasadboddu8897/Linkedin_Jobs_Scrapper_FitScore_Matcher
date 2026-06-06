@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LinkedIn Job Matcher — AI-Powered Resume Matching</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>💼</text></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="index.css" />
+</head>
+<body>
+
+  <!-- ═══════════════════ HEADER ═══════════════════ -->
+  <header class="app-header">
+    <span class="app-icon">💼</span>
+    <div class="header-text">
+      <h1 class="app-title">LinkedIn Job Matcher</h1>
+      <p class="app-subtitle">AI-Powered Resume Matching</p>
+    </div>
+  </header>
+
+  <!-- ═══════════════════ MAIN CONTENT ═══════════════════ -->
+  <main>
+
+    <!-- ── Search Panel ── -->
+    <section id="search-panel" class="glass-panel">
+      <h2 class="panel-title">🔍 Job Search</h2>
+
+      <div class="search-grid">
+        <input
+          type="text"
+          id="keywords"
+          placeholder="e.g. ServiceNow Developer"
+          autocomplete="off"
+        />
+        <input
+          type="text"
+          id="location"
+          placeholder="e.g. India, United States"
+          autocomplete="off"
+        />
+      </div>
+
+      <!-- City Quick-Pick -->
+      <div class="city-picker" id="city-picker">
+        <label class="city-picker-label">🏢 Quick pick city:</label>
+        <div class="city-chips" id="city-chips">
+          <button class="city-chip" data-city="Hyderabad, India">Hyderabad</button>
+          <button class="city-chip" data-city="Bengaluru, India">Bengaluru</button>
+          <button class="city-chip" data-city="Chennai, India">Chennai</button>
+          <button class="city-chip" data-city="Mumbai, India">Mumbai</button>
+          <button class="city-chip" data-city="Pune, India">Pune</button>
+          <button class="city-chip" data-city="Delhi, India">Delhi</button>
+          <button class="city-chip" data-city="Noida, India">Noida</button>
+          <button class="city-chip" data-city="Gurugram, India">Gurugram</button>
+          <button class="city-chip" data-city="Kolkata, India">Kolkata</button>
+          <button class="city-chip" data-city="Ahmedabad, India">Ahmedabad</button>
+          <button class="city-chip" data-city="New York, United States">New York</button>
+          <button class="city-chip" data-city="San Francisco, United States">San Francisco</button>
+          <button class="city-chip" data-city="London, United Kingdom">London</button>
+          <button class="city-chip" data-city="Remote">Remote</button>
+        </div>
+      </div>
+
+      <div class="filters-row">
+        <select id="datePosted">
+          <option value="" disabled selected>📅 Date Posted</option>
+          <option value="past24hours">Past 24 hours</option>
+          <option value="pastWeek">Past week</option>
+          <option value="pastMonth">Past month</option>
+          <option value="anyTime">Any time</option>
+        </select>
+
+        <select id="jobType">
+          <option value="" disabled selected>💼 Job Type</option>
+          <option value="full-time">Full-time</option>
+          <option value="part-time">Part-time</option>
+          <option value="contract">Contract</option>
+          <option value="internship">Internship</option>
+        </select>
+
+        <select id="experienceLevel">
+          <option value="" disabled selected>📊 Experience</option>
+          <option value="entry">Entry Level</option>
+          <option value="associate">Associate</option>
+          <option value="mid-senior">Mid-Senior Level</option>
+          <option value="director">Director</option>
+          <option value="executive">Executive</option>
+        </select>
+
+        <select id="workplaceType">
+          <option value="" disabled selected>🏢 Workplace</option>
+          <option value="remote">Remote</option>
+          <option value="on-site">On-site</option>
+          <option value="hybrid">Hybrid</option>
+        </select>
+
+        <input
+          type="number"
+          id="maxItems"
+          value="25"
+          min="5"
+          max="100"
+          title="Max results"
+        />
+      </div>
+
+      <button id="scrape-btn" class="btn-primary">🚀 Scrape LinkedIn Jobs</button>
+
+      <div id="scrape-status" class="scrape-status"></div>
+    </section>
+
+    <!-- ── Resume Panel ── -->
+    <section id="resume-panel" class="glass-panel">
+      <h2 class="panel-title">📄 Your Resume</h2>
+
+      <div class="upload-zone" id="upload-zone">
+        <span class="upload-icon">📎</span>
+        <p class="upload-label">Drag &amp; drop your DOCX resume or click to upload</p>
+        <p class="upload-hint">Supports .docx files up to 5 MB</p>
+        <input type="file" id="resume-file" accept=".docx" hidden />
+      </div>
+
+      <div class="skills-container" id="skills-container">
+        <h3>Your Skills</h3>
+        <div id="skills-tags" class="skills-tags">
+          <!-- Skill chips rendered dynamically -->
+        </div>
+        <div class="add-skill-row">
+          <input
+            type="text"
+            id="new-skill"
+            placeholder="Add a skill…"
+            autocomplete="off"
+          />
+          <button id="add-skill-btn" class="btn-small">+ Add</button>
+        </div>
+      </div>
+
+      <button id="match-btn" class="btn-secondary" disabled>🎯 Match Jobs to Resume</button>
+    </section>
+
+    <!-- ── Results Header ── -->
+    <section id="results-header" class="glass-panel results-header" hidden>
+      <h2 class="panel-title">📊 Results</h2>
+      <div class="results-controls">
+        <span id="results-count" class="results-count"></span>
+        <button id="reload-cache-btn" class="btn-small" style="display:inline-flex; align-items:center; gap:0.25rem" title="Reload last scraped jobs from cache without calling Apify">
+          🔄 Reload Cache
+        </button>
+        <select id="sort-by">
+          <option value="score">Sort by Match Score</option>
+          <option value="date">Sort by Date</option>
+          <option value="company">Sort by Company</option>
+          <option value="location">Sort by Location</option>
+        </select>
+      </div>
+    </section>
+
+    <!-- ── Job Cards Grid ── -->
+    <div id="jobs-grid" class="jobs-grid">
+      <!-- Job cards rendered dynamically by app.js -->
+    </div>
+
+    <!-- ── Pagination Controls ── -->
+    <div id="pagination-container" class="pagination-container" hidden>
+      <!-- Paginated page selectors dynamically rendered by app.js -->
+    </div>
+
+    <!-- ── Skeleton Loader Grid ── -->
+    <div id="skeleton-grid" class="jobs-grid" hidden>
+
+      <!-- Skeleton Card 1 -->
+      <div class="skeleton-card">
+        <div class="skeleton-header">
+          <div class="skeleton-circle"></div>
+          <div style="flex:1">
+            <div class="skeleton-line h-lg w-80"></div>
+            <div class="skeleton-line w-50"></div>
+          </div>
+        </div>
+        <div class="skeleton-line w-60"></div>
+        <div class="skeleton-line w-40"></div>
+        <div class="skeleton-badges">
+          <div class="skeleton-badge"></div>
+          <div class="skeleton-badge"></div>
+          <div class="skeleton-badge"></div>
+        </div>
+        <div class="skeleton-line w-80"></div>
+      </div>
+
+      <!-- Skeleton Card 2 -->
+      <div class="skeleton-card">
+        <div class="skeleton-header">
+          <div class="skeleton-circle"></div>
+          <div style="flex:1">
+            <div class="skeleton-line h-lg w-80"></div>
+            <div class="skeleton-line w-50"></div>
+          </div>
+        </div>
+        <div class="skeleton-line w-60"></div>
+        <div class="skeleton-line w-40"></div>
+        <div class="skeleton-badges">
+          <div class="skeleton-badge"></div>
+          <div class="skeleton-badge"></div>
+          <div class="skeleton-badge"></div>
+        </div>
+        <div class="skeleton-line w-80"></div>
+      </div>
+
+      <!-- Skeleton Card 3 -->
+      <div class="skeleton-card">
+        <div class="skeleton-header">
+          <div class="skeleton-circle"></div>
+          <div style="flex:1">
+            <div class="skeleton-line h-lg w-80"></div>
+            <div class="skeleton-line w-50"></div>
+          </div>
+        </div>
+        <div class="skeleton-line w-60"></div>
+        <div class="skeleton-line w-40"></div>
+        <div class="skeleton-badges">
+          <div class="skeleton-badge"></div>
+          <div class="skeleton-badge"></div>
+          <div class="skeleton-badge"></div>
+        </div>
+        <div class="skeleton-line w-80"></div>
+      </div>
+
+      <!-- Skeleton Card 4 -->
+      <div class="skeleton-card">
+        <div class="skeleton-header">
+          <div class="skeleton-circle"></div>
+          <div style="flex:1">
+            <div class="skeleton-line h-lg w-80"></div>
+            <div class="skeleton-line w-50"></div>
+          </div>
+        </div>
+        <div class="skeleton-line w-60"></div>
+        <div class="skeleton-line w-40"></div>
+        <div class="skeleton-badges">
+          <div class="skeleton-badge"></div>
+          <div class="skeleton-badge"></div>
+          <div class="skeleton-badge"></div>
+        </div>
+        <div class="skeleton-line w-80"></div>
+      </div>
+
+      <!-- Skeleton Card 5 -->
+      <div class="skeleton-card">
+        <div class="skeleton-header">
+          <div class="skeleton-circle"></div>
+          <div style="flex:1">
+            <div class="skeleton-line h-lg w-80"></div>
+            <div class="skeleton-line w-50"></div>
+          </div>
+        </div>
+        <div class="skeleton-line w-60"></div>
+        <div class="skeleton-line w-40"></div>
+        <div class="skeleton-badges">
+          <div class="skeleton-badge"></div>
+          <div class="skeleton-badge"></div>
+          <div class="skeleton-badge"></div>
+        </div>
+        <div class="skeleton-line w-80"></div>
+      </div>
+
+      <!-- Skeleton Card 6 -->
+      <div class="skeleton-card">
+        <div class="skeleton-header">
+          <div class="skeleton-circle"></div>
+          <div style="flex:1">
+            <div class="skeleton-line h-lg w-80"></div>
+            <div class="skeleton-line w-50"></div>
+          </div>
+        </div>
+        <div class="skeleton-line w-60"></div>
+        <div class="skeleton-line w-40"></div>
+        <div class="skeleton-badges">
+          <div class="skeleton-badge"></div>
+          <div class="skeleton-badge"></div>
+          <div class="skeleton-badge"></div>
+        </div>
+        <div class="skeleton-line w-80"></div>
+      </div>
+
+    </div>
+    <!-- /skeleton-grid -->
+
+  </main>
+
+  <!-- ═══════════════════ JOB DETAIL MODAL ═══════════════════ -->
+  <div id="job-modal" class="modal-overlay" hidden>
+    <div class="modal-content">
+      <button class="modal-close" id="modal-close" aria-label="Close modal">✕</button>
+      <div id="modal-body">
+        <!-- Populated dynamically by app.js -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════ TOAST CONTAINER ═══════════════════ -->
+  <div id="toast-container"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
