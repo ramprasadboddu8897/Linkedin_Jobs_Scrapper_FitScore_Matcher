@@ -88,7 +88,7 @@ def _load_config() -> Dict[str, Any]:
     # 1. Start with env variables
     config = {
         "apify_token": os.environ.get("APIFY_TOKEN"),
-        "actor_id": os.environ.get("APIFY_ACTOR_ID", "apify/linkedin-jobs-scraper"),
+        "actor_id": os.environ.get("APIFY_ACTOR_ID", "curious_coder/linkedin-jobs-scraper"),
         "default_keywords": os.environ.get("DEFAULT_KEYWORDS", ""),
         "default_location": os.environ.get("DEFAULT_LOCATION", ""),
         "default_max_items": int(os.environ.get("DEFAULT_MAX_ITEMS", "25")),
@@ -746,7 +746,7 @@ def scrape_jobs():
     try:
         config = _load_config()
         token: Optional[str] = config.get("apify_token")
-        actor_id: str = config.get("actor_id", "apify/linkedin-jobs-scraper")
+        actor_id: str = config.get("actor_id", "curious_coder/linkedin-jobs-scraper")
 
         if not token or token == "YOUR_APIFY_TOKEN_HERE":
             return jsonify({"error": "Apify token not configured. Please set the APIFY_TOKEN environment variable or configure config.json."}), 400
