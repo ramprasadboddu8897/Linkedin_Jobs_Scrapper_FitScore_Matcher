@@ -1,0 +1,23 @@
+# Ignore python caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore local virtual environments
+venv/
+.venv/
+env/
+
+# Ignore local datasets and cache databases
+data/*.json
+data/resume_profile.json
+
+# Ignore credentials and local configurations
+config.json
+.env
+
+# Ignore git metadata
+.git/
+.gitignore
+.gitattributes

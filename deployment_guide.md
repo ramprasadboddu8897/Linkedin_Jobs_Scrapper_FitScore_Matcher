@@ -32,17 +32,18 @@ Since Render connects directly to GitHub, you first need to push your code to a 
 
 ---
 
-## Step 2: Deploy to Render (Free Tier)
+## Step 2: Deploy to Render (Free Tier) via Docker
+
+Using Docker on Render enables **extremely fast builds** (often under 10 seconds on updates) because it caches libraries like `scikit-learn` and `numpy`.
 
 1. Sign up or log in at [Render.com](https://render.com).
 2. Click the **New +** button in the top right and select **Web Service**.
 3. Link your GitHub account and select your repository (`YOUR_REPO_NAME`).
-4. Set the following configuration details:
+4. Render will automatically detect the `Dockerfile` in the repository root and configure the environment:
    - **Name**: `linkedin-job-matcher` (or any custom name)
-   - **Environment / Runtime**: `Python`
-   - **Build Command**: `pip install -r requirements.txt`
-   - **Start Command**: `gunicorn server:app`
+   - **Runtime**: `Docker` (Render auto-detects this!)
    - **Instance Type**: **Free**
+   *(Note: You do not need to specify any Build or Start commands because they are pre-configured inside the `Dockerfile`!)*
 
 ---
 
