@@ -15,6 +15,7 @@ const state = {
   isMatching: false,
   currentPage: 1,    // Current page of results
   pageSize: 10,      // Number of jobs per page (responsive pagination)
+  connections: [],   // LinkedIn connections list
 };
 
 // ─── DOM References ─────────────────────────────────────────
@@ -40,6 +41,10 @@ const dom = {
   newSkill:        $('#new-skill'),
   addSkillBtn:     $('#add-skill-btn'),
   matchBtn:        $('#match-btn'),
+  connectionsUploadZone: $('#connections-upload-zone'),
+  connectionsFile:       $('#connections-file'),
+  connectionsCountText:  $('#connections-count-text'),
+  clearConnectionsBtn:   $('#clear-connections-btn'),
 
   // Results
   resultsHeader:       $('#results-header'),
@@ -63,6 +68,155 @@ const dom = {
 // ═══════════════════════════════════════════════════════════════
 //  UTILITY HELPERS
 // ═══════════════════════════════════════════════════════════════
+
+/** Clean company name by removing punctuation and corporate suffixes */
+function cleanCompanyName(name) {
+  if (!name) return "";
+  name = name.toLowerCase();
+  name = name.replace(/[^\w\s]/g, "");
+  const suffixes = new Set(["inc", "llc", "ltd", "co", "corp", "corporation", "pvt", "private", "limited", "solutions", "services", "technologies", "technology"]);
+  const words = name.split(/\s+/).filter(w => w && !suffixes.has(w));
+  return words.join(" ");
+}
+
+/** Correctly parses a single CSV line handling quoted fields containing commas */
+function parseCSVLine(line) {
+  const result = [];
+  let current = "";
+  let inQuotes = false;
+  
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === ',' && !inQuotes) {
+      result.push(current.trim());
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  result.push(current.trim());
+  return result;
+}
+
+/** Parses the LinkedIn exported Connections CSV text into a structured array */
+function parseConnectionsCSV(csvText) {
+  const lines = csvText.split(/\r?\n/);
+  let headerIndex = -1;
+  
+  // LinkedIn CSV has empty lines or a "Connections" title line at the top.
+  // Find the line containing the main headers.
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].includes("First Name") && lines[i].includes("Company")) {
+      headerIndex = i;
+      break;
+    }
+  }
+  
+  if (headerIndex === -1) {
+    headerIndex = 0;
+  }
+  
+  const headersLine = lines[headerIndex];
+  if (!headersLine) return [];
+  
+  const headers = parseCSVLine(headersLine);
+  const firstNameIdx = headers.indexOf("First Name");
+  const lastNameIdx = headers.indexOf("Last Name");
+  const companyIdx = headers.indexOf("Company");
+  const positionIdx = headers.indexOf("Position");
+  const urlIdx = headers.indexOf("URL");
+  
+  if (firstNameIdx === -1 || companyIdx === -1) {
+    throw new Error("Invalid CSV format. Please upload a valid LinkedIn Connections export.");
+  }
+  
+  const connections = [];
+  for (let i = headerIndex + 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    
+    const row = parseCSVLine(line);
+    if (row.length < headers.length) continue;
+    
+    const firstName = row[firstNameIdx] || "";
+    const lastName = row[lastNameIdx] || "";
+    const company = row[companyIdx] || "";
+    const position = row[positionIdx] || "";
+    const url = row[urlIdx] || "";
+    
+    if (firstName && company) {
+      connections.push({
+        name: `${firstName} ${lastName}`.trim(),
+        company: company.trim(),
+        position: position.trim(),
+        url: url.trim()
+      });
+    }
+  }
+  
+  return connections;
+}
+
+/** Cross-references jobs with the user's connection list and attaches matching results */
+function matchConnectionsToJobs(jobs, connections) {
+  if (!jobs || jobs.length === 0) return jobs;
+  
+  if (!connections || connections.length === 0) {
+    jobs.forEach(job => {
+      job.network_connections = [];
+    });
+    return jobs;
+  }
+  
+  const connMap = new Map();
+  connections.forEach(c => {
+    const cleaned = cleanCompanyName(c.company);
+    if (cleaned) {
+      if (!connMap.has(cleaned)) {
+        connMap.set(cleaned, []);
+      }
+      connMap.get(cleaned).push(c);
+    }
+  });
+  
+  jobs.forEach(job => {
+    const companyName = job.companyName || job.company || "";
+    const cleanedJob = cleanCompanyName(companyName);
+    const matches = [];
+    
+    if (cleanedJob) {
+      // Direct match
+      if (connMap.has(cleanedJob)) {
+        matches.push(...connMap.get(cleanedJob));
+      } else {
+        // Substring match for matching words
+        for (const [cleanedC, conns] of connMap.entries()) {
+          if (cleanedC.length >= 4 && cleanedJob.length >= 4) {
+            if (cleanedC.includes(cleanedJob) || cleanedJob.includes(cleanedC)) {
+              matches.push(...conns);
+            }
+          }
+        }
+      }
+    }
+    
+    // Deduplicate matches
+    const seen = new Set();
+    const uniqueMatches = [];
+    matches.forEach(m => {
+      if (!seen.has(m.name)) {
+        seen.add(m.name);
+        uniqueMatches.push(m);
+      }
+    });
+    
+    job.network_connections = uniqueMatches;
+  });
+  
+  return jobs;
+}
 
 /**
  * Safe fetch wrapper — returns parsed JSON or throws with a
@@ -243,6 +397,9 @@ function renderJobCards(jobs) {
     return;
   }
 
+  // Cross-reference with connections network dynamically
+  matchConnectionsToJobs(jobs, state.connections);
+
   // Slicing for pagination
   const totalItems = jobs.length;
   const totalPages = Math.ceil(totalItems / state.pageSize);
@@ -272,6 +429,7 @@ function renderJobCards(jobs) {
         if (type === 'workplace' && label.toLowerCase().includes('remote')) extraClass = ' badge-remote';
         if (type === 'jobType' && label.toLowerCase().includes('full')) extraClass = ' badge-fulltime';
         if (type === 'target') extraClass = ' badge-target-company';
+        if (type === 'network') extraClass = ' badge-network';
         return `<span class="badge${extraClass}">${esc(label)}</span>`;
       };
 
@@ -321,6 +479,20 @@ function renderJobCards(jobs) {
       const isTarget = job.is_partner_company === true;
       const targetClass = isTarget ? ' target-company' : '';
 
+      let networkSnippetHtml = '';
+      if (job.network_connections && job.network_connections.length > 0) {
+        const first = job.network_connections[0];
+        const extraText = job.network_connections.length > 1 ? ` & ${job.network_connections.length - 1} other${job.network_connections.length - 1 > 1 ? 's' : ''}` : '';
+        networkSnippetHtml = `
+          <div style="font-size: 0.75rem; color: var(--accent-emerald); display: flex; align-items: center; gap: 0.35rem; margin-top: 0.25rem;">
+            <span>👥</span>
+            <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+              Referral: <strong>${esc(first.name)}</strong> (${esc(first.position)})${esc(extraText)}
+            </span>
+          </div>
+        `;
+      }
+
       return `
         <div class="job-card${targetClass}" style="animation-delay:${index * 0.05}s">
           <div class="card-header">
@@ -335,11 +507,13 @@ function renderJobCards(jobs) {
           ${job.salary ? `<p class="job-salary">💰 ${esc(job.salary)}</p>` : ''}
           <div class="job-badges">
             ${isTarget ? badgeHtml('🎯 Recruiter Network', 'target') : ''}
+            ${(job.network_connections && job.network_connections.length > 0) ? badgeHtml(`👥 ${job.network_connections.length} Referral${job.network_connections.length > 1 ? 's' : ''}`, 'network') : ''}
             ${badgeHtml(job.employmentType || job.jobType, 'jobType')}
             ${badgeHtml(job.seniorityLevel || job.experienceLevel, 'experience')}
             ${badgeHtml(job.applicantsCount ? job.applicantsCount + ' applicants' : '', 'workplace')}
           </div>
           ${skillsHtml}
+          ${networkSnippetHtml}
           <div class="card-actions">
             <button class="btn-details" onclick="showJobDetail(${globalIndex})">View Details</button>
             ${
@@ -884,6 +1058,59 @@ function showJobDetail(index) {
     `;
   }
 
+  // Network referrals section
+  let referralsHtml = '';
+  if (job.network_connections && job.network_connections.length > 0) {
+    const listHtml = job.network_connections
+      .map(c => {
+        const initials = c.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+        return `
+          <div class="referrals-card">
+            <div class="referrals-card-avatar">${esc(initials)}</div>
+            <div class="referrals-card-details">
+              <div class="referrals-card-name">${esc(c.name)}</div>
+              <div class="referrals-card-pos">${esc(c.position || 'Employee')} at ${esc(c.company)}</div>
+            </div>
+          </div>
+        `;
+      })
+      .join('');
+
+    const firstConn = job.network_connections[0];
+    const emailBody = `Hi ${firstConn.name},
+
+I hope you're doing well!
+
+I noticed a ${job.title} role open at ${firstConn.company} and saw that you are working there (or previously worked there) as a ${firstConn.position || 'Employee'}.
+
+The role looks like a great fit for my skills, and I'd love to apply. Would you be open to sharing a referral or passing along my resume to the hiring team?
+
+I’ve attached a link to the position: ${job.applyUrl || job.link || 'LinkedIn Job Listing'}
+
+Thanks so much, and let's catch up soon!
+
+Best,
+[Your Name]`;
+
+    referralsHtml = `
+      <div class="referrals-modal-section">
+        <h4>👥 Network Referral Connections (${job.network_connections.length})</h4>
+        <div class="referrals-list">
+          ${listHtml}
+        </div>
+        <div class="referral-outreach-container">
+          <div style="font-size: 0.8rem; color: var(--text-secondary); font-weight: 500; text-align: left;">
+            Outreach Template (for ${esc(firstConn.name)}):
+          </div>
+          <textarea class="referral-outreach-box" id="referral-outreach-text" readonly>${esc(emailBody)}</textarea>
+          <button class="btn-copy-referral" onclick="copyReferralText()">
+            📋 Copy Message Template
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
   // Description — prefer HTML version, fallback to text
   const descriptionContent = job.descriptionHtml || job.descriptionText || job.description || 'No description available.';
   const descriptionHtml = descriptionContent.includes('<')
@@ -910,6 +1137,7 @@ function showJobDetail(index) {
     ` : ''}
     ${scoreHtml}
     ${skillsHtml}
+    ${referralsHtml}
     <div class="modal-description">
       ${descriptionHtml}
     </div>
@@ -1080,6 +1308,152 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // ── Connections File Upload ──
+  if (dom.connectionsUploadZone) {
+    dom.connectionsUploadZone.addEventListener('click', () => dom.connectionsFile.click());
+  }
+  if (dom.connectionsFile) {
+    dom.connectionsFile.addEventListener('change', (e) => {
+      if (e.target.files[0]) handleConnectionsUpload(e.target.files[0]);
+    });
+  }
+  
+  // Drag & Drop for Connections
+  if (dom.connectionsUploadZone) {
+    dom.connectionsUploadZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dom.connectionsUploadZone.classList.add('drag-over');
+    });
+    dom.connectionsUploadZone.addEventListener('dragleave', () => {
+      dom.connectionsUploadZone.classList.remove('drag-over');
+    });
+    dom.connectionsUploadZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dom.connectionsUploadZone.classList.remove('drag-over');
+      const file = e.dataTransfer.files[0];
+      if (file) handleConnectionsUpload(file);
+    });
+  }
+
+  // Clear Connections
+  if (dom.clearConnectionsBtn) {
+    dom.clearConnectionsBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      clearConnections();
+    });
+  }
+
+  // Load stored connections
+  loadConnectionsState();
+
   // ── Load cached data ──
   loadCachedData();
 });
+
+// ═══════════════════════════════════════════════════════════════
+//  CONNECTIONS MANAGEMENT FUNCTIONS
+// ═══════════════════════════════════════════════════════════════
+
+function loadConnectionsState() {
+  try {
+    const stored = localStorage.getItem('network_connections');
+    if (stored) {
+      state.connections = JSON.parse(stored);
+      updateConnectionsUI();
+    }
+  } catch (err) {
+    console.error('Failed to load connections state:', err);
+  }
+}
+
+function updateConnectionsUI() {
+  if (!dom.connectionsCountText) return;
+  
+  const count = state.connections.length;
+  if (count > 0) {
+    dom.connectionsCountText.innerHTML = `👥 <strong>${count}</strong> connections loaded`;
+    if (dom.clearConnectionsBtn) dom.clearConnectionsBtn.style.display = 'inline-flex';
+    if (dom.connectionsUploadZone) {
+      dom.connectionsUploadZone.classList.add('uploaded');
+      dom.connectionsUploadZone.querySelector('.upload-label').textContent = 'Connections list active';
+    }
+  } else {
+    dom.connectionsCountText.textContent = 'No connections loaded';
+    if (dom.clearConnectionsBtn) dom.clearConnectionsBtn.style.display = 'none';
+    if (dom.connectionsUploadZone) {
+      dom.connectionsUploadZone.classList.remove('uploaded');
+      dom.connectionsUploadZone.querySelector('.upload-label').textContent = 'Drag & drop Connections.csv or click to upload';
+    }
+  }
+}
+
+async function handleConnectionsUpload(file) {
+  if (!file) return;
+  
+  if (!file.name.toLowerCase().endsWith('.csv')) {
+    showToast('Please upload a .csv file', 'error');
+    return;
+  }
+  
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const text = e.target.result;
+    try {
+      const parsed = parseConnectionsCSV(text);
+      if (parsed.length === 0) {
+        showToast('No valid connections found in the file.', 'error');
+        return;
+      }
+      
+      state.connections = parsed;
+      localStorage.setItem('network_connections', JSON.stringify(parsed));
+      updateConnectionsUI();
+      showToast(`Loaded ${parsed.length} connections successfully!`, 'success');
+      
+      // Auto-refresh the current job list to show referral badges immediately!
+      const activeJobs = state.matchedJobs.length > 0 ? state.matchedJobs : state.jobs;
+      if (activeJobs.length > 0) {
+        renderJobCards(activeJobs);
+      }
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  };
+  
+  reader.onerror = function() {
+    showToast('Failed to read CSV file.', 'error');
+  };
+  
+  reader.readAsText(file);
+}
+
+function clearConnections() {
+  state.connections = [];
+  localStorage.removeItem('network_connections');
+  updateConnectionsUI();
+  showToast('Connections network cleared.', 'info');
+  
+  // Refresh job list
+  const activeJobs = state.matchedJobs.length > 0 ? state.matchedJobs : state.jobs;
+  if (activeJobs.length > 0) {
+    renderJobCards(activeJobs);
+  }
+}
+window.clearConnections = clearConnections;
+
+function copyReferralText() {
+  const textBox = document.getElementById('referral-outreach-text');
+  if (!textBox) return;
+  
+  textBox.select();
+  textBox.setSelectionRange(0, 99999); // For mobile devices
+  
+  navigator.clipboard.writeText(textBox.value)
+    .then(() => {
+      showToast('Referral request template copied!', 'success');
+    })
+    .catch(() => {
+      showToast('Failed to copy to clipboard', 'error');
+    });
+}
+window.copyReferralText = copyReferralText;

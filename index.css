@@ -1580,3 +1580,163 @@ select:focus {
   border-color: rgba(6, 182, 212, 0.3);
   font-weight: 600;
 }
+
+/* ── Small Upload Zone (for Connections CSV) ── */
+.upload-zone-small {
+  border: 1px dashed var(--border-light);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.01);
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.upload-zone-small:hover,
+.upload-zone-small.drag-over {
+  border-color: var(--accent-cyan);
+  background: rgba(6, 182, 212, 0.05);
+  color: var(--accent-cyan);
+}
+
+.upload-zone-small.uploaded {
+  border-color: var(--accent-emerald);
+  background: rgba(16, 185, 129, 0.05);
+  color: var(--accent-emerald);
+}
+
+/* ── Network Referrals Badge ── */
+.badge.badge-network {
+  color: var(--accent-emerald);
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.22);
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+/* ── Modal Connections Section ── */
+.referrals-modal-section {
+  margin: 1.5rem 0;
+  padding: 1.25rem;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  animation: fadeInUp 0.5s ease both;
+}
+
+.referrals-modal-section h4 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-top: 0;
+}
+
+.referrals-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.referrals-card {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: rgba(15, 23, 42, 0.4);
+  padding: 0.65rem 0.85rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+}
+
+.referrals-card-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--gradient-success);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.referrals-card-details {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.8rem;
+  text-align: left;
+}
+
+.referrals-card-name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.referrals-card-pos {
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Referral Outreach Text Area ── */
+.referral-outreach-container {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.referral-outreach-box {
+  width: 100%;
+  height: 120px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem;
+  font-family: inherit;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  resize: none;
+  outline: none;
+  line-height: 1.5;
+}
+
+.referral-outreach-box:focus {
+  border-color: var(--accent-emerald);
+}
+
+.btn-copy-referral {
+  align-self: flex-end;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--gradient-success);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.85rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  transition: transform var(--transition-fast), box-shadow var(--transition-base);
+}
+
+.btn-copy-referral:hover {
+  transform: scale(1.02);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+.btn-copy-referral:active {
+  transform: scale(0.97);
+}

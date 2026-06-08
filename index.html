@@ -139,7 +139,43 @@
         </div>
       </div>
 
-      <button id="match-btn" class="btn-secondary" disabled>🎯 Match Jobs to Resume</button>
+      <!-- ── Connections Network Panel ── -->
+      <div class="connections-container" style="margin-top: 1.5rem; border-top: 1px solid var(--border-subtle); padding-top: 1.5rem;">
+        <h3 style="font-size: 0.9rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.4rem; margin-top: 0;">
+          👥 LinkedIn Connections Network
+          <span class="help-tooltip-icon" title="Export your connections CSV from LinkedIn (Settings > Data Privacy > Get a copy of your data > Connections) and upload it here to discover referral opportunities!" style="cursor: help;">ℹ️</span>
+        </h3>
+        
+        <div class="upload-zone upload-zone-small" id="connections-upload-zone" style="padding: 1.25rem 1rem; margin-bottom: 0.75rem;">
+          <span class="upload-icon" style="font-size: 1.75rem; margin-bottom: 0.25rem; display: block;">👥</span>
+          <p class="upload-label" style="font-size: 0.8rem; font-weight: 500; margin: 0;">Drag &amp; drop Connections.csv or click to upload</p>
+          <p class="upload-hint" style="font-size: 0.7rem; margin-top: 0.2rem; margin-bottom: 0; color: var(--text-muted);">Stored locally &amp; privately in browser</p>
+          <input type="file" id="connections-file" accept=".csv" hidden />
+        </div>
+        
+        <div id="connections-status" class="connections-status" style="font-size: 0.8rem; color: var(--text-secondary); display: flex; align-items: center; justify-content: space-between; min-height: 1.5rem;">
+          <span id="connections-count-text">No connections loaded</span>
+          <button id="clear-connections-btn" class="btn-small" style="font-size: 0.7rem; padding: 0.15rem 0.5rem; display: none;">Clear</button>
+        </div>
+
+        <!-- Help instructions -->
+        <details style="margin-top: 0.75rem; font-size: 0.75rem; color: var(--text-muted); cursor: pointer;">
+          <summary style="font-weight: 500; outline: none; color: var(--accent-cyan); user-select: none;">💡 Fast Export Bookmarklet</summary>
+          <div style="padding: 0.5rem; background: var(--bg-elevated); border-radius: var(--radius-sm); margin-top: 0.35rem; cursor: default; line-height: 1.4;">
+            To skip waiting for LinkedIn's email:
+            <ol style="margin-left: 1rem; margin-top: 0.25rem; padding-left: 0.25rem;">
+              <li>Visit your <a href="https://www.linkedin.com/mynetwork/invite-connect/connections/" target="_blank" rel="noopener" style="color: var(--accent-blue); text-decoration: none;">LinkedIn Connections Page</a>.</li>
+              <li>Open Browser DevTools Console (F12 or right-click > Inspect > Console).</li>
+              <li>Copy and paste this script, then press Enter:
+                <pre style="font-family: monospace; font-size: 0.65rem; background: var(--bg-surface-solid); padding: 0.35rem; border-radius: 4px; overflow-x: auto; margin-top: 0.25rem; white-space: pre-wrap; word-break: break-all; color: var(--text-primary); margin-bottom: 0;">c=[];(async()=>{for(i=0;i&lt;5;i++){window.scrollTo(0,document.body.scrollHeight);await new Promise(r=>setTimeout(r,800))}document.querySelectorAll('.mn-connection-card').forEach(e=>{let n=e.querySelector('.mn-connection-card__name')?.innerText;let p=e.querySelector('.mn-connection-card__occupation')?.innerText;let co=p?.split(' at ')[1]||'';let po=p?.split(' at ')[0]||p;if(n&amp;&amp;co)c.push({f:n.split(' ')[0],l:n.split(' ').slice(1).join(' '),co:co,po:po})});let csv='First Name,Last Name,Company,Position\n'+c.map(r=>`"${r.f}","${r.l}","${r.co}","${r.po}"`).join('\n');let b=new Blob([csv],{type:'text/csv'});let a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='Connections.csv';a.click()})()</pre>
+              </li>
+              <li>It instantly downloads <code>Connections.csv</code>!</li>
+            </ol>
+          </div>
+        </details>
+      </div>
+
+      <button id="match-btn" class="btn-secondary" disabled style="margin-top: 1rem;">🎯 Match Jobs to Resume</button>
     </section>
 
     <!-- ── Results Header ── -->
