@@ -1300,30 +1300,40 @@ def _compute_match_scores(
     # ---- Combine scores ----
     scored_jobs: List[Dict[str, Any]] = []
     for idx, job in enumerate(jobs):
-        kw_score_100 = round(keyword_results[idx]["keyword_score"] * 100)
+        # V3: JD-First requirement coverage analysis
+        jd_skills = job.get("extracted_jd_skills", [])
+        jd_analysis = _compute_jd_match_scores(jd_skills, skills)
+        req_score = jd_analysis.get("requirements_met_score")
+        total_reqs = jd_analysis.get("total_requirements", 0)
+
         sim_score_100 = round(similarity_scores[idx] * 100)
         
-        final_score = round(
-            0.6 * keyword_results[idx]["keyword_score"] * 100
-            + 0.4 * similarity_scores[idx] * 100
-        )
+        if req_score is not None and total_reqs > 0:
+            # V3 True Score: 80% weight on JD Requirements Met + 20% on Semantic Context Fit
+            final_v3_score = round(0.8 * req_score + 0.2 * sim_score_100)
+            final_score = min(final_v3_score, 100)
+            kw_score_display = req_score
+        else:
+            # Fallback to legacy if no JD requirements were parsed
+            final_score = min(round(
+                0.6 * keyword_results[idx]["keyword_score"] * 100
+                + 0.4 * similarity_scores[idx] * 100
+            ), 100)
+            kw_score_display = round(keyword_results[idx]["keyword_score"] * 100)
 
         enriched = {**job}
-        enriched["match_score"] = min(final_score, 100)
-        enriched["keyword_score"] = kw_score_100
+        enriched["match_score"] = final_score
+        enriched["keyword_score"] = kw_score_display
         enriched["tfidf_score"] = sim_score_100  # Map to existing tfidf_score key for UI compatibility
         enriched["match_method"] = match_method  # Add matching method details
         enriched["matched_skills"] = keyword_results[idx]["matched_skills"]
         enriched["partial_skills"] = keyword_results[idx]["partial_skills"]
         enriched["skills_analysis"] = keyword_results[idx]["skills_analysis"]
-        # V3: JD-First requirement coverage analysis
-        jd_skills = job.get("extracted_jd_skills", [])
-        jd_analysis = _compute_jd_match_scores(jd_skills, skills)
         enriched["extracted_jd_skills"] = jd_skills
         enriched["jd_matched_skills"] = jd_analysis["jd_matched_skills"]
         enriched["missing_skills"] = jd_analysis["missing_skills"]
-        enriched["total_requirements"] = jd_analysis["total_requirements"]
-        enriched["requirements_met_score"] = jd_analysis["requirements_met_score"]
+        enriched["total_requirements"] = total_reqs
+        enriched["requirements_met_score"] = req_score if req_score is not None else final_score
         scored_jobs.append(enriched)
 
     scored_jobs.sort(key=lambda j: j["match_score"], reverse=True)

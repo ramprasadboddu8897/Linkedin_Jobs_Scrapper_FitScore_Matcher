@@ -576,12 +576,27 @@ function renderJobCards(jobs) {
             ${(job.total_requirements > 0) ? badgeHtml(`📊 ${job.requirements_met_score}% Coverage (${(job.jd_matched_skills || []).length}/${job.total_requirements})`, 'coverage') : ''}
           </div>
           ${skillsHtml}
-          ${(job.missing_skills && job.missing_skills.length > 0) ? `
-            <div class="job-skills" style="margin-top:0.25rem">
-              ${job.missing_skills.slice(0, 4).map(s => `<span class="skill-gap">🔴 ${esc(s)}</span>`).join('')}
-              ${job.missing_skills.length > 4 ? `<span style="font-size:0.7rem;color:var(--text-muted)"> +${job.missing_skills.length - 4} more gaps</span>` : ''}
-            </div>
-          ` : ''}
+          ${(() => {
+            if (!job.missing_skills || job.missing_skills.length === 0) return '';
+            const visibleGaps = job.missing_skills.slice(0, 3);
+            const hiddenGaps = job.missing_skills.slice(3);
+            const hasMore = hiddenGaps.length > 0;
+            return `
+              <div class="job-gaps-container" style="margin-top:0.35rem">
+                <div class="gaps-list">
+                  ${visibleGaps.map(s => `<span class="skill-gap">🔴 ${esc(s)}</span>`).join('')}
+                  ${hasMore ? `
+                    <span id="extra-gaps-${globalIndex}" class="extra-gaps-shelf" style="display:none">
+                      ${hiddenGaps.map(s => `<span class="skill-gap">🔴 ${esc(s)}</span>`).join('')}
+                    </span>
+                    <button class="btn-more-gaps" data-count="${hiddenGaps.length}" onclick="toggleGaps(${globalIndex}, event)">
+                      +${hiddenGaps.length} more gaps
+                    </button>
+                  ` : ''}
+                </div>
+              </div>
+            `;
+          })()}
           ${networkSnippetHtml}
           <div class="card-actions">
             <button class="btn-details" onclick="showJobDetail(${globalIndex})">View Details</button>
@@ -1122,19 +1137,19 @@ function showJobDetail(index) {
           </div>
         </div>
         <div class="score-breakdown">
-          <h4>Score Breakdown</h4>
+          <h4>V3 Score Breakdown</h4>
           <div class="score-bar-group">
             <div class="score-bar-label">
-              <span>Keyword Match</span>
-              <span>${Math.round(keywordScore)}%</span>
+              <span>JD Requirements Coverage</span>
+              <span>${Math.round(job.requirements_met_score || keywordScore)}%</span>
             </div>
             <div class="score-bar-track">
-              <div class="score-bar-fill" style="width:${keywordScore}%"></div>
+              <div class="score-bar-fill" style="width:${job.requirements_met_score || keywordScore}%"></div>
             </div>
           </div>
           <div class="score-bar-group">
             <div class="score-bar-label">
-              <span>${methodLabel}</span>
+              <span>Semantic Context Fit</span>
               <span>${Math.round(tfidfScore)}%</span>
             </div>
             <div class="score-bar-track">
@@ -1350,6 +1365,30 @@ function closeModal() {
   dom.modal.hidden = true;
   document.body.style.overflow = '';
 }
+
+// ═══════════════════════════════════════════════════════════════
+//  V3: INTERACTIVE GAPS TOGGLE
+// ═══════════════════════════════════════════════════════════════
+
+function toggleGaps(globalIndex, event) {
+  if (event) event.stopPropagation(); // Prevents opening the job details modal
+  const shelf = document.getElementById(`extra-gaps-${globalIndex}`);
+  const btn = event.currentTarget;
+  if (!shelf) return;
+
+  const isHidden = (shelf.style.display === 'none' || shelf.style.display === '');
+  if (isHidden) {
+    shelf.style.display = 'inline-flex';
+    shelf.style.flexWrap = 'wrap';
+    shelf.style.gap = '0.35rem';
+    btn.textContent = 'Show less';
+  } else {
+    shelf.style.display = 'none';
+    const count = btn.getAttribute('data-count') || '';
+    btn.textContent = `+${count} more gaps`;
+  }
+}
+window.toggleGaps = toggleGaps;
 
 // ═══════════════════════════════════════════════════════════════
 //  V3: DYNAMIC RESUME TAILORING & INTERVIEW PREP

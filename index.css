@@ -2126,3 +2126,40 @@ select:focus {
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
+/* ─── V3 Interactive Gap Shelf & Toggle Button ─── */
+.job-gaps-container {
+  display: flex;
+  flex-direction: column;
+}
+
+.gaps-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.extra-gaps-shelf {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.btn-more-gaps {
+  background: rgba(244, 63, 94, 0.12);
+  border: 1px solid rgba(244, 63, 94, 0.3);
+  color: #f43f5e;
+  border-radius: var(--radius-full);
+  padding: 0.15rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-more-gaps:hover {
+  background: rgba(244, 63, 94, 0.25);
+  color: #ffffff;
+}
+
+
