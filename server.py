@@ -671,20 +671,7 @@ _EDUCATION_HEADINGS: re.Pattern = re.compile(
 
 
 def _extract_resume_sections(text: str) -> Dict[str, Any]:
-    """Parse raw resume text into skills, experience, and education sections.
-
-    The parser walks through each line, detects section headings, and
-    collects the content lines belonging to each section.  Skills are
-    further split on common delimiters (commas, pipes, semicolons, bullets)
-    to yield a flat list.
-
-    Args:
-        text: The full plaintext content of the resume.
-
-    Returns:
-        A dict with keys ``skills``, ``experience``, ``education``, and
-        ``full_text``.
-    """
+    """Parses resume text into clean, structured sections."""
     lines: List[str] = [ln.strip() for ln in text.splitlines()]
 
     skills_lines: List[str] = []
@@ -707,7 +694,6 @@ def _extract_resume_sections(text: str) -> Dict[str, Any]:
             current_section = "education"
             continue
 
-        # Accumulate content into the active section
         if current_section == "skills":
             skills_lines.append(line)
         elif current_section == "experience":
@@ -715,16 +701,60 @@ def _extract_resume_sections(text: str) -> Dict[str, Any]:
         elif current_section == "education":
             education_lines.append(line)
 
-    # Split skills on common delimiters (including newlines and colons) to produce a flat list
-    raw_skills_text = "\n".join(skills_lines)
-    skills: List[str] = [
-        s.strip()
-        for s in re.split(r"[,;|:•·▪►\n]", raw_skills_text)
-        if s.strip()
-    ]
+    # --- Robust Skills Extraction ---
+    category_blocks: List[str] = []
+    current_block: str = ""
+
+    for line in skills_lines:
+        line = line.strip()
+        if not line:
+            continue
+
+        # If line is a standalone category (e.g. 'ServiceNow Platform:')
+        if re.match(r"^[A-Z][a-zA-Z\s&/]{2,25}:\s*$", line):
+            if current_block:
+                category_blocks.append(current_block)
+            current_block = ""
+        # If line starts with an inline category (e.g. 'ServiceNow Platform: ITSM, ...')
+        elif re.match(r"^[A-Z][a-zA-Z\s&/]{2,25}:\s*", line):
+            if current_block:
+                category_blocks.append(current_block)
+            current_block = re.sub(r"^[A-Z][a-zA-Z\s&/]{2,25}:\s*", "", line)
+        else:
+            # Continuation / soft line-wrap
+            if current_block:
+                current_block += " " + line
+            else:
+                current_block = line
+
+    if current_block:
+        category_blocks.append(current_block)
+
+    # Protect commas inside parentheses (e.g. (DDL, DML, DQL) or (ACLs))
+    def _protect_parens(match):
+        return match.group(0).replace(",", "§")
+
+    parsed_skills: List[str] = []
+    seen = set()
+
+    for block in category_blocks:
+        protected = re.sub(r"\([^)]*\)", _protect_parens, block)
+        tokens = re.split(r"[,;•·▪►|]", protected)
+
+        for tok in tokens:
+            # Restore protected commas and strip bullet artifacts
+            clean_tok = tok.replace("§", ",").strip()
+            clean_tok = re.sub(r"^[•·▪►\-\*]\s*", "", clean_tok).strip()
+
+            if not clean_tok or len(clean_tok) < 2:
+                continue
+
+            if clean_tok.lower() not in seen:
+                seen.add(clean_tok.lower())
+                parsed_skills.append(clean_tok)
 
     return {
-        "skills": skills,
+        "skills": parsed_skills,
         "experience": experience_lines,
         "education": education_lines,
         "full_text": text,
@@ -1263,7 +1293,7 @@ def scrape_jobs():
         # Apify API requires tilde (~) separator in URL paths, not slash (/)
         actor_id_url = actor_id.replace("/", "~")
         start_url = f"{APIFY_BASE_URL}/acts/{actor_id_url}/runs?token={token}"
-        start_resp = requests.post(start_url, json=actor_input, timeout=30)
+        start_resp = requests.post(start_url, json=actor_input, timeout=(10, 45))
         
         if start_resp.status_code == 401:
             return jsonify({"error": "Invalid or expired Apify token."}), 401
@@ -1282,7 +1312,7 @@ def scrape_jobs():
         poll_url = f"{APIFY_BASE_URL}/actor-runs/{run_id}?token={token}"
         for attempt in range(1, MAX_POLL_ATTEMPTS + 1):
             time.sleep(POLL_INTERVAL_SECONDS)
-            poll_resp = requests.get(poll_url, timeout=15)
+            poll_resp = requests.get(poll_url, timeout=(10, 25))
             if poll_resp.status_code == 401:
                 return jsonify({"error": "Invalid or expired Apify token."}), 401
             elif poll_resp.status_code == 429:
@@ -1298,15 +1328,30 @@ def scrape_jobs():
         else:
             return jsonify({"error": "Apify request timed out."}), 504
 
-        # 3. Fetch dataset items ------------------------------------------------
+        # 3. Fetch dataset items with retry and generous read timeout --------
         dataset_id: str = poll_resp.json()["data"]["defaultDatasetId"]
         items_url = f"{APIFY_BASE_URL}/datasets/{dataset_id}/items?token={token}"
-        items_resp = requests.get(items_url, timeout=30)
-        if items_resp.status_code == 401:
-            return jsonify({"error": "Invalid or expired Apify token."}), 401
-        elif items_resp.status_code == 429:
-            return jsonify({"error": "Rate limit exceeded on Apify. Please try again later."}), 429
-        items_resp.raise_for_status()
+        items_resp = None
+        last_exc = None
+        for fetch_attempt in range(1, 4):
+            try:
+                logger.info("Downloading dataset items from Apify (attempt %d/3) …", fetch_attempt)
+                items_resp = requests.get(items_url, timeout=(10, 90))
+                if items_resp.status_code == 401:
+                    return jsonify({"error": "Invalid or expired Apify token."}), 401
+                elif items_resp.status_code == 429:
+                    return jsonify({"error": "Rate limit exceeded on Apify. Please try again later."}), 429
+                items_resp.raise_for_status()
+                break
+            except requests.RequestException as exc:
+                last_exc = exc
+                logger.warning("Attempt %d to fetch dataset items failed: %s", fetch_attempt, exc)
+                if fetch_attempt < 3:
+                    time.sleep(2 * fetch_attempt)
+
+        if items_resp is None:
+            raise last_exc
+
         raw_jobs: List[Dict[str, Any]] = items_resp.json()
 
         # Deduplicate job items from overlapping search queries
@@ -1451,7 +1496,7 @@ def get_api_limits():
 
     if apify_token and apify_token != "YOUR_APIFY_TOKEN_HERE":
         try:
-            r = requests.get(f"{APIFY_BASE_URL}/users/me/limits?token={apify_token}", timeout=6)
+            r = requests.get(f"{APIFY_BASE_URL}/users/me/limits?token={apify_token}", timeout=(5, 15))
             if r.status_code == 200:
                 payload = r.json().get("data", {})
                 limits_data = payload.get("limits", {})
