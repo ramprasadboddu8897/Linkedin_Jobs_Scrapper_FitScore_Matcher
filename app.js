@@ -1080,218 +1080,222 @@ function sortJobs(criteria) {
 // ═══════════════════════════════════════════════════════════════
 
 function showJobDetail(index) {
-  const jobs = state.matchedJobs.length > 0 ? state.matchedJobs : state.jobs;
-  const job = jobs[index];
-  if (!job) return;
+  try {
+    const jobs = state.matchedJobs.length > 0 ? state.matchedJobs : state.jobs;
+    const job = jobs[index];
+    if (!job) return;
 
-  const hasScore = job.match_score != null;
-  const score = job.match_score ?? 0;
-
-  // Score breakdown section
-  let scoreHtml = '';
-  if (hasScore) {
-    const keywordScore = job.keyword_score ?? score;
-    const tfidfScore = job.tfidf_score ?? score;
-    const methodLabel = job.match_method || 'TF-IDF Similarity';
-
-    scoreHtml = `
-      <div class="modal-score-display">
-        ${buildScoreCircle(score, 80, 5, 'modal-score-circle')}
-        <div class="modal-score-label">
-          <strong>Overall Match Score</strong>
-          Based on keyword overlap and ${methodLabel.toLowerCase()}
-        </div>
-      </div>
-      <div class="score-breakdown">
-        <h4>Score Breakdown</h4>
-        <div class="score-bar-group">
-          <div class="score-bar-label">
-            <span>Keyword Match</span>
-            <span>${Math.round(keywordScore)}%</span>
-          </div>
-          <div class="score-bar-track">
-            <div class="score-bar-fill" style="width:${keywordScore}%"></div>
-          </div>
-        </div>
-        <div class="score-bar-group">
-          <div class="score-bar-label">
-            <span>${methodLabel}</span>
-            <span>${Math.round(tfidfScore)}%</span>
-          </div>
-          <div class="score-bar-track">
-            <div class="score-bar-fill" style="width:${tfidfScore}%"></div>
-          </div>
-        </div>
+    // 1. Immediately show modal with subtle loading skeleton for instant tactile feedback
+    dom.modal.hidden = false;
+    document.body.style.overflow = 'hidden';
+    dom.modalBody.innerHTML = `
+      <div class="modal-loading-state">
+        <div class="status-spinner" style="width: 28px; height: 28px; border-width: 3px;"></div>
+        <p style="margin-top: 0.75rem; font-size: 0.85rem; color: var(--text-secondary);">Loading job details…</p>
       </div>
     `;
-  }
 
-  // Skills section
-  let skillsHtml = '';
-  if (hasScore && state.skills.length > 0) {
-    const matched = (job.matched_skills || []).map((s) => s.toLowerCase());
-    const partial = (job.partial_skills || []).map((s) => s.toLowerCase());
+    const hasScore = job.match_score != null;
+    const score = job.match_score ?? 0;
 
-    skillsHtml = `
-      <div class="modal-skills-section">
-        <h4>Skills Analysis</h4>
-        <div class="modal-skills-list">
-          ${state.skills
-            .map((s) => {
-              const s_low = s.toLowerCase();
-              const isCore = state.coreSkills.some(cs => cs.toLowerCase() === s_low);
-              const star = isCore ? '★ ' : '';
-              const coreCls = isCore ? ' core-match' : '';
-              const analysis = job.skills_analysis?.[s];
+    // Score breakdown section
+    let scoreHtml = '';
+    if (hasScore) {
+      const keywordScore = job.keyword_score ?? score;
+      const tfidfScore = job.tfidf_score ?? score;
+      const methodLabel = job.match_method || 'Semantic Similarity';
 
-              if (matched.includes(s_low)) {
-                if (analysis && analysis.semantic) {
-                  const title = `Matched semantically via concept group: ${analysis.concept_group}. Terms found: ${analysis.matched_context_terms.join(', ')}`;
-                  return `<span class="skill-semantic${coreCls}" title="${esc(title)}">${star}${esc(s)}</span>`;
-                }
-                return `<span class="skill-matched${coreCls}" title="Fully matched">${star}${esc(s)}</span>`;
-              } else if (partial.includes(s_low)) {
-                const missing = (analysis?.tokens || []).filter((t) => !t.matched).map((t) => t.token);
-                return `<span class="skill-partial${coreCls}" title="Missing: ${esc(missing.join(', '))}">${star}${esc(s)} <small style="opacity:0.75;font-size:0.65rem">(${esc(missing.join(', '))})</small></span>`;
-              } else {
-                let title = 'Not found';
-                if (analysis && analysis.tokens && analysis.tokens.length > 0) {
-                  const missing = analysis.tokens.filter((t) => !t.matched).map((t) => t.token);
-                  title = `Missing: ${missing.join(', ')}`;
-                }
-                return `<span class="skill-unmatched" title="${esc(title)}">${esc(s)}</span>`;
-              }
-            })
-            .join('')}
+      scoreHtml = `
+        <div class="modal-score-display">
+          ${buildScoreCircle(score, 80, 5, 'modal-score-circle')}
+          <div class="modal-score-label">
+            <strong>Overall Match Score</strong>
+            Based on keyword overlap and ${methodLabel.toLowerCase()}
+          </div>
         </div>
-      </div>
-    `;
-  }
-
-  // Network referrals section
-  let referralsHtml = '';
-  if (job.network_connections && job.network_connections.length > 0) {
-    const listHtml = job.network_connections
-      .map(c => {
-        const initials = c.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
-        return `
-          <div class="referrals-card">
-            <div class="referrals-card-avatar">${esc(initials)}</div>
-            <div class="referrals-card-details">
-              <div class="referrals-card-name">${esc(c.name)}</div>
-              <div class="referrals-card-pos">${esc(c.position || 'Employee')} at ${esc(c.company)}</div>
+        <div class="score-breakdown">
+          <h4>Score Breakdown</h4>
+          <div class="score-bar-group">
+            <div class="score-bar-label">
+              <span>Keyword Match</span>
+              <span>${Math.round(keywordScore)}%</span>
+            </div>
+            <div class="score-bar-track">
+              <div class="score-bar-fill" style="width:${keywordScore}%"></div>
             </div>
           </div>
-        `;
-      })
-      .join('');
-
-    const firstConn = job.network_connections[0];
-    const emailBody = `Hi ${firstConn.name},
-
-I hope you're doing well!
-
-I noticed a ${job.title} role open at ${firstConn.company} and saw that you are working there (or previously worked there) as a ${firstConn.position || 'Employee'}.
-
-The role looks like a great fit for my skills, and I'd love to apply. Would you be open to sharing a referral or passing along my resume to the hiring team?
-
-I’ve attached a link to the position: ${job.applyUrl || job.link || 'LinkedIn Job Listing'}
-
-Thanks so much, and let's catch up soon!
-
-Best,
-[Your Name]`;
-
-    referralsHtml = `
-      <div class="referrals-modal-section">
-        <h4>👥 Network Referral Connections (${job.network_connections.length})</h4>
-        <div class="referrals-list">
-          ${listHtml}
-        </div>
-        <div class="referral-outreach-container">
-          <div style="font-size: 0.8rem; color: var(--text-secondary); font-weight: 500; text-align: left;">
-            Outreach Template (for ${esc(firstConn.name)}):
+          <div class="score-bar-group">
+            <div class="score-bar-label">
+              <span>${methodLabel}</span>
+              <span>${Math.round(tfidfScore)}%</span>
+            </div>
+            <div class="score-bar-track">
+              <div class="score-bar-fill" style="width:${tfidfScore}%"></div>
+            </div>
           </div>
-          <textarea class="referral-outreach-box" id="referral-outreach-text" readonly>${esc(emailBody)}</textarea>
-          <button class="btn-copy-referral" onclick="copyReferralText()">
-            📋 Copy Message Template
-          </button>
         </div>
-      </div>
-    `;
-  }
-
-  // Description — prefer HTML version, fallback to text
-  const descriptionContent = job.descriptionHtml || job.descriptionText || job.description || 'No description available.';
-  const descriptionHtml = descriptionContent.includes('<')
-    ? descriptionContent
-    : `<p>${esc(descriptionContent)}</p>`;
-
-  dom.modalBody.innerHTML = `
-    <h2 class="modal-job-title">${esc(job.title)}</h2>
-    <p class="modal-company">${esc(job.companyName || job.company || '')}</p>
-    <div class="modal-meta">
-      <span>📍 ${esc(job.location || 'N/A')}</span>
-      <span>🕐 ${esc(job.postedAt || job.postedDate || 'N/A')}</span>
-      ${job.employmentType ? `<span>💼 ${esc(job.employmentType)}</span>` : ''}
-      ${job.seniorityLevel ? `<span>📊 ${esc(job.seniorityLevel)}</span>` : ''}
-      ${job.salary ? `<span>💰 ${esc(job.salary)}</span>` : ''}
-      ${job.applicantsCount ? `<span>👥 ${esc(String(job.applicantsCount))} applicants</span>` : ''}
-    </div>
-    ${job.is_partner_company ? `
-      <div style="margin: -0.5rem 0 1rem; display: inline-flex; align-items: center; gap: 0.5rem; background: rgba(6, 182, 212, 0.1); border: 1px solid rgba(6, 182, 212, 0.25); padding: 0.5rem 1rem; border-radius: var(--radius-md)">
-        <span style="font-size:1.1rem">🎯</span>
-        <span style="font-size:0.85rem; font-weight:600; color:var(--accent-cyan)">Recruiter Network Target Company</span>
-        <a href="${esc(job.partner_company_info.url)}" target="_blank" rel="noopener" style="font-size:0.8rem; color:#fff; background:var(--accent-cyan); border-radius:var(--radius-sm); padding:0.25rem 0.6rem; text-decoration:none; margin-left:0.5rem">Careers Link ↗</a>
-      </div>
-    ` : ''}
-    ${job.career_site_url ? `
-      <div style="margin: -0.5rem 0 1rem; display: inline-flex; align-items: center; gap: 0.5rem;">
-        <a class="btn-portal" href="${esc(job.career_site_url)}" target="_blank" rel="noopener">🌐 View on Official Career Portal ↗</a>
-      </div>
-    ` : ''}
-    ${scoreHtml}
-    ${skillsHtml}
-    ${referralsHtml}
-    ${job.active_recruiters && job.active_recruiters.length > 0 ? `
-      <div class="job-recruiters-section" style="margin: 1rem 0;">
-        <div class="recruiters-header">
-          <span>📬 Active Hiring Team Contacts (${job.active_recruiters.length})</span>
-        </div>
-        <div class="recruiters-list">
-          ${job.active_recruiters.map(r => {
-            const mailtoLink = buildRecruiterMailto(r.email, r.name, job.companyName || job.company, job.title);
-            const views = r.profilesViewed ? ` · ${r.profilesViewed} views` : '';
-            const status = r.status || 'Hiring Team Contact';
-            const badgeClass = status.toLowerCase().includes('active') ? 'active-now' : 'contact';
-            return `
-              <div class="recruiter-chip">
-                <div class="recruiter-meta">
-                  <strong>${esc(r.name)}</strong>
-                  <span style="font-size:0.75rem; color:var(--text-secondary)">(${esc(r.email)})</span>
-                  <span class="recruiter-badge ${badgeClass}">
-                    ${esc(status)}${esc(views)}
-                  </span>
-                </div>
-                <a class="btn-email-recruiter" href="${mailtoLink}">✉️ Email Direct</a>
-              </div>
-            `;
-          }).join('')}
-        </div>
-      </div>
-    ` : ''}
-    <div class="modal-description">
-      ${descriptionHtml}
-    </div>
-    ${
-      (job.applyUrl || job.link)
-        ? `<a class="modal-apply-btn" href="${esc(job.applyUrl || job.link)}" target="_blank" rel="noopener">Apply for this position →</a>`
-        : ''
+      `;
     }
-  `;
 
-  dom.modal.hidden = false;
-  document.body.style.overflow = 'hidden';
+    // Skills section — FIXED: Safe semantic title without undefined .join()
+    let skillsHtml = '';
+    if (hasScore && state.skills.length > 0) {
+      const matched = (job.matched_skills || []).map((s) => s.toLowerCase());
+      const partial = (job.partial_skills || []).map((s) => s.toLowerCase());
+
+      skillsHtml = `
+        <div class="modal-skills-section">
+          <h4>Skills Analysis</h4>
+          <div class="modal-skills-list">
+            ${state.skills
+              .map((s) => {
+                const s_low = s.toLowerCase();
+                const isCore = state.coreSkills.some(cs => cs.toLowerCase() === s_low);
+                const star = isCore ? '★ ' : '';
+                const coreCls = isCore ? ' core-match' : '';
+                const analysis = job.skills_analysis?.[s];
+
+                if (matched.includes(s_low)) {
+                  // V2 Safe Semantic Match Rendering
+                  if (analysis && (analysis.reason === 'semantic_match' || analysis.semantic)) {
+                    const scorePct = analysis.score ? Math.round(analysis.score * 100) : 100;
+                    const title = `Semantic vector match (${scorePct}% similarity with job description context)`;
+                    return `<span class="skill-semantic${coreCls}" title="${esc(title)}">${star}${esc(s)}</span>`;
+                  }
+                  return `<span class="skill-matched${coreCls}" title="Fully matched">${star}${esc(s)}</span>`;
+                } else if (partial.includes(s_low)) {
+                  const missing = (analysis?.tokens || []).filter((t) => !t.matched).map((t) => t.token);
+                  return `<span class="skill-partial${coreCls}" title="Missing: ${esc(missing.join(', '))}">
+                    ${star}${esc(s)} <small style="opacity:0.75;font-size:0.65rem">(${esc(missing.join(', '))})</small>
+                  </span>`;
+                } else {
+                  let title = 'Not found';
+                  if (analysis && analysis.tokens && analysis.tokens.length > 0) {
+                    const missing = analysis.tokens.filter((t) => !t.matched).map((t) => t.token);
+                    title = `Missing: ${missing.join(', ')}`;
+                  }
+                  return `<span class="skill-unmatched" title="${esc(title)}">${esc(s)}</span>`;
+                }
+              })
+              .join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    // Network referrals section
+    let referralsHtml = '';
+    if (job.network_connections && job.network_connections.length > 0) {
+      const listHtml = job.network_connections
+        .map(c => {
+          const initials = (c.name || 'EM').split(' ').filter(Boolean).map(n => n[0]).join('').substring(0, 2).toUpperCase();
+          return `
+            <div class="referrals-card">
+              <div class="referrals-card-avatar">${esc(initials)}</div>
+              <div class="referrals-card-details">
+                <div class="referrals-card-name">${esc(c.name)}</div>
+                <div class="referrals-card-pos">${esc(c.position || 'Employee')} at ${esc(c.company)}</div>
+              </div>
+            </div>
+          `;
+        })
+        .join('');
+
+      const firstConn = job.network_connections[0];
+      const emailBody = `Hi ${firstConn.name},\n\nI noticed a ${job.title} role open at ${firstConn.company} and saw that you work there.\n\nWould you be open to connecting or sharing an internal referral?\n\nJob Link: ${job.applyUrl || job.link || ''}\n\nBest regards,\nRam`;
+
+      referralsHtml = `
+        <div class="referrals-modal-section">
+          <h4>👥 Network Referral Connections (${job.network_connections.length})</h4>
+          <div class="referrals-list">${listHtml}</div>
+          <div class="referral-outreach-container">
+            <div style="font-size: 0.8rem; color: var(--text-secondary); font-weight: 500; text-align: left;">
+              Outreach Template (for ${esc(firstConn.name)}):
+            </div>
+            <textarea class="referral-outreach-box" id="referral-outreach-text" readonly>${esc(emailBody)}</textarea>
+            <button class="btn-copy-referral" onclick="copyReferralText()">📋 Copy Message Template</button>
+          </div>
+        </div>
+      `;
+    }
+
+    // Active Recruiters Section (V2 Intelligence)
+    let recruitersHtml = '';
+    if (job.active_recruiters && job.active_recruiters.length > 0) {
+      recruitersHtml = `
+        <div class="job-recruiters-section" style="margin: 1rem 0;">
+          <div class="recruiters-header">
+            <span>📬 Active Hiring Team (${job.active_recruiters.length})</span>
+          </div>
+          <div class="recruiters-list">
+            ${job.active_recruiters.map(r => {
+              const mailto = buildRecruiterMailto(r.email, r.name, job.companyName || job.company, job.title);
+              const views = r.profilesViewed ? ` · ${r.profilesViewed} views` : '';
+              const status = r.status || 'Hiring Team Contact';
+              const badgeClass = status.toLowerCase().includes('active') ? 'active-now' : 'contact';
+              return `
+                <div class="recruiter-chip">
+                  <div class="recruiter-meta">
+                    <strong>${esc(r.name)}</strong>
+                    <span style="font-size:0.75rem; color:var(--text-secondary)">(${esc(r.email)})</span>
+                    <span class="recruiter-badge ${badgeClass}">
+                      ${esc(status)}${esc(views)}
+                    </span>
+                  </div>
+                  <a href="${mailto}" class="btn-email-recruiter">✉️ Email Recruiter</a>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    // Career portal button
+    const portalButtonHtml = job.career_site_url
+      ? `<a class="btn-portal" href="${esc(job.career_site_url)}" target="_blank" rel="noopener" style="margin-right:0.5rem">🌐 View on Official Career Portal ↗</a>`
+      : '';
+
+    // Description text / html
+    const descriptionContent = job.descriptionHtml || job.descriptionText || job.description || 'No description available.';
+    const descriptionHtml = descriptionContent.includes('<')
+      ? descriptionContent
+      : `<p>${esc(descriptionContent)}</p>`;
+
+    // Render complete payload into modal body
+    dom.modalBody.innerHTML = `
+      <h2 class="modal-job-title">${esc(job.title)}</h2>
+      <p class="modal-company">${esc(job.companyName || job.company || '')}</p>
+      <div class="modal-meta">
+        <span>📍 ${esc(job.location || 'N/A')}</span>
+        <span>🕐 ${esc(job.postedAt || job.postedDate || 'N/A')}</span>
+        ${job.employmentType ? `<span>💼 ${esc(job.employmentType)}</span>` : ''}
+        ${job.seniorityLevel ? `<span>📊 ${esc(job.seniorityLevel)}</span>` : ''}
+        ${job.applicantsCount ? `<span>👥 ${esc(String(job.applicantsCount))} applicants</span>` : ''}
+      </div>
+      ${job.is_partner_company ? `
+        <div style="margin: 0.5rem 0; display: inline-flex; align-items: center; gap: 0.5rem; background: rgba(6, 182, 212, 0.1); border: 1px solid rgba(6, 182, 212, 0.25); padding: 0.5rem 1rem; border-radius: var(--radius-md)">
+          <span style="font-size:1.1rem">🎯</span>
+          <span style="font-size:0.85rem; font-weight:600; color:var(--accent-cyan)">Recruiter Network Target Company</span>
+          <a href="${esc(job.partner_company_info.url)}" target="_blank" rel="noopener" style="font-size:0.8rem; color:#fff; background:var(--accent-cyan); border-radius:var(--radius-sm); padding:0.25rem 0.6rem; text-decoration:none; margin-left:0.5rem">Careers Link ↗</a>
+        </div>
+      ` : ''}
+      ${portalButtonHtml ? `<div style="margin: 0.5rem 0 1rem;">${portalButtonHtml}</div>` : ''}
+      ${scoreHtml}
+      ${skillsHtml}
+      ${referralsHtml}
+      ${recruitersHtml}
+      <div class="modal-description">${descriptionHtml}</div>
+      ${(job.applyUrl || job.link)
+        ? `<a class="modal-apply-btn" href="${esc(job.applyUrl || job.link)}" target="_blank" rel="noopener">Apply for this position →</a>`
+        : ''}
+    `;
+
+  } catch (err) {
+    console.error("Error opening job details modal:", err);
+    showToast("Failed to open job details: " + err.message, "error");
+    closeModal();
+  }
 }
 
 // Expose to inline onclick handlers
