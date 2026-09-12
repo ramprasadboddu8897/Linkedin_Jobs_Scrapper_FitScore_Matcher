@@ -524,6 +524,75 @@ def _load_career_and_recruiter_indices() -> tuple[Dict[str, str], Dict[str, List
     return _career_sites_cache, _recruiters_index_cache
 
 
+GENERIC_WORDS = {
+    "career",
+    "careers",
+    "mycareer",
+    "job",
+    "jobs",
+    "work",
+    "talent",
+    "group",
+    "global",
+    "tech",
+    "technologies",
+    "solutions",
+    "services",
+    "systems",
+    "consulting",
+    "corp",
+    "corporation",
+    "inc",
+    "llc",
+    "pvt",
+    "ltd",
+    "limited",
+    "staffing",
+    "recruiting",
+    "recruiters",
+    "portal",
+}
+
+
+def is_valid_company_match(job_company: str, candidate_company: str) -> bool:
+    """Matches company names using token sets and word boundaries.
+
+    Prevents substring bleed like 'mycareer' matching 'mycareernet'.
+    """
+    if not job_company or not candidate_company:
+        return False
+
+    job_clean = re.sub(r"[^\w\s]", " ", job_company.lower()).strip()
+    cand_clean = re.sub(r"[^\w\s]", " ", candidate_company.lower()).strip()
+
+    # 1. Exact match
+    if job_clean == cand_clean:
+        return True
+
+    # 2. Filter out corporate stop words
+    job_tokens = [w for w in job_clean.split() if w not in GENERIC_WORDS]
+    cand_tokens = [w for w in cand_clean.split() if w not in GENERIC_WORDS]
+
+    if not job_tokens or not cand_tokens:
+        return False
+
+    # 3. Clean token equality (e.g. 'Infosys Technologies' -> ['infosys'] matches 'Infosys')
+    if " ".join(job_tokens) == " ".join(cand_tokens):
+        return True
+
+    # 4. Token subset check (whole word match only, minimum 3 chars)
+    job_set = set(job_tokens)
+    cand_set = set(cand_tokens)
+
+    if cand_set.issubset(job_set) or job_set.issubset(cand_set):
+        overlap = job_set.intersection(cand_set)
+        # Require at least one non-generic word of length >= 3 (e.g. 'aaa', 'airasia')
+        if any(len(w) >= 3 for w in overlap):
+            return True
+
+    return False
+
+
 def _enrich_jobs_with_companies(jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Enriches jobs with career portal URLs, active recruiter contacts, and partner flags."""
     career_sites, recruiters_index = _load_career_and_recruiter_indices()
@@ -533,7 +602,6 @@ def _enrich_jobs_with_companies(jobs: List[Dict[str, Any]]) -> List[Dict[str, An
     for job in jobs:
         company_name = job.get("companyName") or job.get("company") or ""
         cleaned_job = _clean_company_name(company_name)
-        job_tokens = set(cleaned_job.split()) if cleaned_job else set()
 
         career_url: Optional[str] = None
         recruiters: List[Dict[str, Any]] = []
@@ -541,53 +609,31 @@ def _enrich_jobs_with_companies(jobs: List[Dict[str, Any]]) -> List[Dict[str, An
         partner_info = None
 
         if cleaned_job:
-            # 1. Match Career Site Portal URL (Direct, Token match e.g. 'aaa', or Substring)
+            # 1. Match Career Site Portal URL (Exact or token-boundary match)
             if cleaned_job in career_sites:
                 career_url = career_sites[cleaned_job]
             else:
                 for c_name, u in career_sites.items():
-                    if c_name in job_tokens or (len(c_name) >= 4 and (c_name in cleaned_job or cleaned_job in c_name)):
+                    if is_valid_company_match(cleaned_job, c_name):
                         career_url = u
                         break
 
-            # 2. Match Active Recruiters (Direct, Token match e.g. 'aaa', or Substring)
+            # 2. Match Active Recruiters (Exact or token-boundary match)
             if cleaned_job in recruiters_index:
                 recruiters = recruiters_index[cleaned_job]
             else:
                 for r_comp, r_list in recruiters_index.items():
-                    if r_comp in job_tokens or (len(r_comp) >= 4 and (r_comp in cleaned_job or cleaned_job in r_comp)):
+                    if is_valid_company_match(cleaned_job, r_comp):
                         recruiters = r_list
                         break
 
             # 3. Match India Remote Target Companies
             for comp in india_remote_companies:
                 base = comp["base_name"].lower().replace("-", "")
-                base_clean = _clean_company_name(base)
-                
-                # Direct match or Token match
-                if (
-                    cleaned_job == base
-                    or cleaned_job == base_clean
-                    or base in job_tokens
-                    or base_clean in job_tokens
-                ):
+                if is_valid_company_match(cleaned_job, base) or is_valid_company_match(company_name, comp.get("original", "")):
                     is_partner = True
                     partner_info = comp
                     break
-
-                # Substring match (base in job_company or vice-versa)
-                if len(base) >= 4 and (base in cleaned_job or cleaned_job in base):
-                    is_partner = True
-                    partner_info = comp
-                    break
-
-                # Check collapsed spaces match
-                raw_company_clean = re.sub(r'[^\w\s]', '', company_name.lower()).replace(" ", "")
-                if base in raw_company_clean or raw_company_clean in base:
-                    if len(base) >= 4 or base == raw_company_clean:
-                        is_partner = True
-                        partner_info = comp
-                        break
 
         enriched = {**job}
         enriched["career_site_url"] = career_url

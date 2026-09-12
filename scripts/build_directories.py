@@ -182,12 +182,81 @@ def parse_career_docx(docx_path: Path) -> Dict[str, str]:
     return career_map
 
 
+# Multi-tenant ATS platforms where the company is in the subdomain or path
+ATS_PLATFORMS = {
+    "phenompeople.com",
+    "phenompeople.net",
+    "phenompro.com",
+    "myworkdayjobs.com",
+    "greenhouse.io",
+    "lever.co",
+    "icims.com",
+    "smartrecruiters.com",
+}
+
+DISALLOWED_KEYS = {
+    "mycareer",
+    "career",
+    "careers",
+    "job",
+    "jobs",
+    "work",
+    "talent",
+    "portal",
+    "internal",
+    "corp",
+    "www",
+    "apply",
+    "boards",
+}
+
+
+def extract_company_from_url(url: str) -> str:
+    """Extracts the real corporate name from a career portal URL."""
+    parsed = urlparse(url)
+    netloc = parsed.netloc.lower().split(":")[0]
+    path = parsed.path.strip("/")
+
+    # 1. Multi-tenant ATS: company might be in path or subdomain
+    if any(ats in netloc for ats in ("lever.co", "greenhouse.io", "smartrecruiters.com")):
+        path_parts = [p for p in path.split("/") if p]
+        if path_parts:
+            return path_parts[0]
+
+    for platform in ATS_PLATFORMS:
+        if netloc.endswith(platform):
+            sub = netloc[: -len(platform)].rstrip(".")
+            parts = sub.split(".")
+            if parts and parts[-1] not in ("jobs", "careers", "boards", "apply"):
+                return parts[-1]
+
+    # 2. Standard corporate domains (e.g. mycareer.airasia.com -> airasia, careers.microsoft.com -> microsoft)
+    parts = netloc.split(".")
+
+    # Handle two-part TLDs (e.g., .co.uk, .com.au, .com.my)
+    if len(parts) >= 3 and parts[-2] in {"co", "com", "org", "net", "gov", "edu"}:
+        return parts[-3]
+    elif len(parts) >= 2:
+        return parts[-2]
+
+    return parts[0]
+
+
 def build_career_sites_index() -> Dict[str, str]:
     """Parses career portal text and documents into a normalized company->URL map."""
     career_map: Dict[str, str] = {}
 
-    # 1. Parse plain text file
+    # 1. Parse Word document tables FIRST (explicit Company Name column takes priority)
+    docx_map = parse_career_docx(CAREER_DOCX)
+    for k, v in docx_map.items():
+        if k and k not in DISALLOWED_KEYS:
+            career_map[k] = v
+
+    logger.info("Indexed %d career site URLs from DOCX tables", len(career_map))
+
+    # 2. Parse plain text file as supplementary
     if CAREER_URLS_TXT.exists():
+        txt_count = 0
         for line in CAREER_URLS_TXT.read_text(
             encoding="utf-8", errors="ignore"
         ).splitlines():
@@ -195,24 +264,14 @@ def build_career_sites_index() -> Dict[str, str]:
             if not url or not url.startswith("http"):
                 continue
 
-            domain = urlparse(url).netloc.lower()
-            domain = re.sub(
-                r"^(www\.|careers\.|jobs\.|jobsearch\.|internal\.)", "", domain
-            )
-            parts = domain.split(".")
-            company_slug = parts[0] if parts else ""
-
+            company_slug = extract_company_from_url(url)
             clean_key = clean_company_name(company_slug)
-            if clean_key and clean_key not in career_map:
+
+            if clean_key and clean_key not in DISALLOWED_KEYS and clean_key not in career_map:
                 career_map[clean_key] = url
+                txt_count += 1
 
-        logger.info("Indexed %d career site URLs from TXT", len(career_map))
-
-    # 2. Parse Word document tables
-    docx_map = parse_career_docx(CAREER_DOCX)
-    for k, v in docx_map.items():
-        if k not in career_map:
-            career_map[k] = v
+        logger.info("Indexed %d additional career site URLs from TXT", txt_count)
 
     logger.info("Total combined career sites indexed: %d", len(career_map))
     return career_map
