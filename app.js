@@ -1312,7 +1312,7 @@ function showJobDetail(index) {
           </div>
         </div>
         ${(job.missing_skills && job.missing_skills.length > 0) ? `
-          <button class="btn-tailor-primary" id="btn-trigger-tailor" onclick="generateTailoredKit('${esc((job.title || '').replace(/'/g, ''))}', '${esc((job.companyName || job.company || '').replace(/'/g, ''))}', ${JSON.stringify(job.missing_skills || []).replace(/'/g, '&apos;')})">
+          <button class="btn-tailor-primary" id="btn-trigger-tailor">
             ✨ Tailor Resume & Prep Interview for this Role
           </button>
           <div id="tailor-result-container" hidden style="margin-top:1rem;"></div>
@@ -1323,6 +1323,18 @@ function showJobDetail(index) {
         ? `<a class="modal-apply-btn" href="${esc(job.applyUrl || job.link)}" target="_blank" rel="noopener">Apply for this position →</a>`
         : ''}
     `;
+
+    // Attach click listener cleanly via JS to avoid HTML attribute quote escaping errors
+    const tailorBtn = dom.modalBody.querySelector('#btn-trigger-tailor');
+    if (tailorBtn) {
+      tailorBtn.addEventListener('click', () => {
+        generateTailoredKit(
+          job.title || '',
+          job.companyName || job.company || 'Company',
+          job.missing_skills || []
+        );
+      });
+    }
 
   } catch (err) {
     console.error("Error opening job details modal:", err);
@@ -1349,9 +1361,9 @@ async function generateTailoredKit(jobTitle, company, missingSkills) {
   if (!container || !btn) return;
 
   btn.disabled = true;
-  btn.innerHTML = `<span class="status-spinner" style="width:16px;height:16px;border-width:2px"></span> Analyzing JD & Generating Kit…`;
+  btn.innerHTML = `<span class="status-spinner" style="width:16px;height:16px;border-width:2px"></span> Synthesizing Tailored Kit…`;
   container.hidden = false;
-  container.innerHTML = `<p style="font-size:0.85rem; color:var(--text-secondary)">Synthesizing tailored experience bullets & interview questions…</p>`;
+  container.innerHTML = `<p style="font-size:0.85rem; color:var(--text-secondary)">Analyzing JD requirements & drafting tailored bullets…</p>`;
 
   try {
     const res = await apiFetch('/api/tailor', {
@@ -1366,15 +1378,12 @@ async function generateTailoredKit(jobTitle, company, missingSkills) {
     });
 
     const summaryEscaped = esc(res.tailored_summary || '');
-    const bulletsHtml = (res.tailored_bullets || []).map(b => {
-      const bulletEscaped = esc(b);
-      return `
-        <li style="margin-bottom:0.5rem">
-          ${bulletEscaped}
-          <button class="btn-copy-sm" style="margin-left:0.5rem" onclick="navigator.clipboard.writeText(this.previousSibling.textContent.trim()); showToast('Bullet copied!', 'success')">📋</button>
-        </li>
-      `;
-    }).join('');
+    const bulletsHtml = (res.tailored_bullets || []).map((b, idx) => `
+      <li style="margin-bottom:0.5rem">
+        <span id="tailored-bullet-${idx}">${esc(b)}</span>
+        <button class="btn-copy-sm btn-copy-bullet" data-index="${idx}" style="margin-left:0.5rem">📋 Copy</button>
+      </li>
+    `).join('');
 
     const questionsHtml = (res.interview_questions || []).map(q => `
       <div class="interview-qa-block">
@@ -1386,20 +1395,40 @@ async function generateTailoredKit(jobTitle, company, missingSkills) {
     container.innerHTML = `
       <div class="tailor-card">
         <h4 style="color:var(--accent-cyan); margin-bottom:0.4rem;">🎯 Targeted Professional Summary</h4>
-        <div class="tailor-text">${summaryEscaped}</div>
-        <button class="btn-copy-sm" style="margin-top:0.5rem" onclick="navigator.clipboard.writeText(document.querySelector('.tailor-text').textContent); showToast('Summary copied!', 'success')">📋 Copy Summary</button>
+        <div class="tailor-text" id="tailored-summary-text">${summaryEscaped}</div>
+        <button class="btn-copy-sm" id="btn-copy-summary" style="margin-top:0.5rem">📋 Copy Summary</button>
 
-        <h4 style="color:var(--accent-cyan); margin: 1rem 0 0.4rem;">💼 Recommended Experience Bullets (Bridging Gaps)</h4>
+        <h4 style="color:var(--accent-cyan); margin: 1rem 0 0.4rem;">💼 Recommended Experience Bullets (Bridge the Gaps)</h4>
         <ul style="padding-left:1.2rem; font-size:0.85rem; line-height:1.5;">
           ${bulletsHtml}
         </ul>
 
-        <h4 style="color:var(--accent-cyan); margin: 1rem 0 0.4rem;">🎙️ Top Interview Questions to Expect</h4>
+        <h4 style="color:var(--accent-cyan); margin: 1rem 0 0.4rem;">🎙️ Top Interview Questions for this Role</h4>
         <div style="display:flex; flex-direction:column; gap:0.5rem;">
           ${questionsHtml}
         </div>
       </div>
     `;
+
+    // Attach copy listeners safely in JS
+    const summaryCopyBtn = container.querySelector('#btn-copy-summary');
+    if (summaryCopyBtn && res.tailored_summary) {
+      summaryCopyBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(res.tailored_summary);
+        showToast('Summary copied to clipboard!', 'success');
+      });
+    }
+
+    container.querySelectorAll('.btn-copy-bullet').forEach(bulletBtn => {
+      bulletBtn.addEventListener('click', (e) => {
+        const idx = parseInt(e.currentTarget.getAttribute('data-index'), 10);
+        if (res.tailored_bullets && res.tailored_bullets[idx]) {
+          navigator.clipboard.writeText(res.tailored_bullets[idx]);
+          showToast('Bullet copied to clipboard!', 'success');
+        }
+      });
+    });
+
   } catch (err) {
     container.innerHTML = `<p style="color:var(--accent-rose); font-size:0.85rem">Failed to generate tailor kit: ${esc(err.message)}</p>`;
   } finally {
@@ -1408,6 +1437,7 @@ async function generateTailoredKit(jobTitle, company, missingSkills) {
   }
 }
 window.generateTailoredKit = generateTailoredKit;
+
 
 
 // ═══════════════════════════════════════════════════════════════
