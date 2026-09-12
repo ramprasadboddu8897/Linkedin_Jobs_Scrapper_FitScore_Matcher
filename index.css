@@ -583,6 +583,29 @@ select:focus {
   color: var(--accent-emerald);
 }
 
+.resume-remove-btn {
+  margin-top: 0.85rem;
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-sm);
+  padding: 0.35rem 0.85rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  transition: all var(--transition-fast);
+}
+
+.resume-remove-btn:hover {
+  background: rgba(239, 68, 68, 0.25);
+  color: #ffffff;
+  border-color: rgba(239, 68, 68, 0.5);
+  transform: translateY(-1px);
+}
+
 /* ── Skills Container ── */
 .skills-container {
   margin-bottom: 1.25rem;
@@ -739,8 +762,9 @@ select:focus {
   transition: transform var(--transition-base), box-shadow var(--transition-base), border-color var(--transition-base);
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.5rem;
   cursor: default;
+  min-height: 280px;
 }
 
 .job-card:hover {
@@ -781,9 +805,30 @@ select:focus {
 }
 
 .job-location,
-.job-date {
+.job-date,
+.job-salary {
   font-size: 0.8rem;
   color: var(--text-muted);
+  margin: 0;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.job-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.job-skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  max-height: 4.5rem;
+  overflow: hidden;
+  margin-top: 0.25rem;
 }
 
 /* ── Match Score Circle (SVG) ── */
@@ -855,6 +900,9 @@ select:focus {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
+  align-items: flex-start;
+  align-content: flex-start;
+  margin-top: 0.25rem;
 }
 
 .badge {
@@ -963,7 +1011,8 @@ select:focus {
   display: flex;
   gap: 0.5rem;
   margin-top: auto;
-  padding-top: 0.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-subtle);
 }
 
 .btn-details {
@@ -1739,4 +1788,118 @@ select:focus {
 
 .btn-copy-referral:active {
   transform: scale(0.97);
+}
+
+/* ── Radar Ping for Hugging Face Status Badge ── */
+.hf-status-badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--accent-emerald);
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  border-radius: var(--radius-full);
+  padding: 0.25rem 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.radar-dot {
+  position: relative;
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent-emerald);
+}
+
+.radar-dot::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: rgba(16, 185, 129, 0.6);
+  transform: translate(-50%, -50%);
+  animation: radarPing 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+@keyframes radarPing {
+  0% {
+    width: 7px;
+    height: 7px;
+    opacity: 0.9;
+  }
+  100% {
+    width: 22px;
+    height: 22px;
+    opacity: 0;
+  }
+}
+
+/* ── Apify Quota Pill ── */
+.apify-quota-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius-full);
+  background: rgba(6, 182, 212, 0.1);
+  border: 1px solid rgba(6, 182, 212, 0.3);
+  color: var(--accent-cyan);
+}
+
+.pulse-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-cyan);
+  box-shadow: 0 0 6px var(--accent-cyan);
+  animation: dotBlink 1.8s ease-in-out infinite;
+}
+
+@keyframes dotBlink {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.3; transform: scale(0.8); }
+}
+
+/* ── Interactive Pulsing Scrape Button ── */
+#scrape-btn {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 0 15px rgba(6, 182, 212, 0.25);
+  animation: buttonAmbientPulse 3s ease-in-out infinite;
+}
+
+#scrape-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 25px rgba(6, 182, 212, 0.55);
+}
+
+@keyframes buttonAmbientPulse {
+  0%, 100% {
+    box-shadow: 0 0 14px rgba(6, 182, 212, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 24px rgba(59, 130, 246, 0.45);
+  }
+}
+
+/* Scraping active state animation */
+#scrape-btn.scraping-active {
+  background: linear-gradient(90deg, #06b6d4, #3b82f6, #06b6d4);
+  background-size: 200% 100%;
+  animation: scrapingShift 1.2s linear infinite;
+}
+
+@keyframes scrapingShift {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
 }

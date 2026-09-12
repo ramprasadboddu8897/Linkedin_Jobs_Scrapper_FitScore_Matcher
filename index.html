@@ -26,7 +26,13 @@
 
     <!-- ── Search Panel ── -->
     <section id="search-panel" class="glass-panel">
-      <h2 class="panel-title">🔍 Job Search</h2>
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem;">
+        <h2 class="panel-title" style="margin-bottom: 0;">🔍 Job Search</h2>
+        <span id="apify-quota-pill" class="apify-quota-pill" title="Checking monthly credits...">
+          <span class="pulse-dot"></span>
+          <span id="apify-quota-text">Apify: Checking...</span>
+        </span>
+      </div>
 
       <div class="search-grid">
         <input
@@ -68,6 +74,7 @@
         <select id="datePosted">
           <option value="" disabled selected>📅 Date Posted</option>
           <option value="past24hours">Past 24 hours</option>
+          <option value="past3Days">Past 3 days</option>
           <option value="pastWeek">Past week</option>
           <option value="pastMonth">Past month</option>
           <option value="anyTime">Any time</option>
@@ -118,9 +125,12 @@
 
       <div class="upload-zone" id="upload-zone">
         <span class="upload-icon">📎</span>
-        <p class="upload-label">Drag &amp; drop your DOCX resume or click to upload</p>
-        <p class="upload-hint">Supports .docx files up to 5 MB</p>
-        <input type="file" id="resume-file" accept=".docx" hidden />
+        <p class="upload-label">Drag &amp; drop your resume or click to upload</p>
+        <p class="upload-hint">Supports .pdf and .docx files up to 5 MB</p>
+        <input type="file" id="resume-file" accept=".pdf,.docx" hidden />
+        <button type="button" id="resume-remove-btn" class="resume-remove-btn" title="Remove attached resume" style="display: none;">
+          🗑️ Remove Attachment
+        </button>
       </div>
 
       <div class="skills-container" id="skills-container">
@@ -173,6 +183,22 @@
             </ol>
           </div>
         </details>
+      </div>
+
+      <!-- ── Match Intelligence Indicator ── -->
+      <div class="match-mode-container" style="margin-top: 1.25rem; border-top: 1px solid var(--border-subtle); padding-top: 1rem;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem;">
+          <span style="font-size: 0.8rem; font-weight: 500; color: var(--text-secondary);">
+            🧠 Match Intelligence:
+          </span>
+          <span id="hf-status-badge" class="hf-status-badge live-radar" title="Checking Hugging Face limit...">
+            <span class="radar-dot"></span>
+            <span id="hf-status-text">HF Semantic AI: Connecting...</span>
+          </span>
+        </div>
+        <p style="font-size: 0.73rem; color: var(--text-muted); line-height: 1.4; margin: 0;">
+          Powered by <code>all-MiniLM-L6-v2</code> dense sentence embeddings with exact-match fast path.
+        </p>
       </div>
 
       <button id="match-btn" class="btn-secondary" disabled style="margin-top: 1rem;">🎯 Match Jobs to Resume</button>

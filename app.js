@@ -37,6 +37,7 @@ const dom = {
   // Resume
   uploadZone:      $('#upload-zone'),
   resumeFile:      $('#resume-file'),
+  resumeRemoveBtn: $('#resume-remove-btn'),
   skillsTags:      $('#skills-tags'),
   newSkill:        $('#new-skill'),
   addSkillBtn:     $('#add-skill-btn'),
@@ -227,7 +228,7 @@ async function apiFetch(url, options = {}) {
     const res = await fetch(url, options);
     const data = await res.json().catch(() => null);
     if (!res.ok) {
-      throw new Error(data?.message || `Server error (${res.status})`);
+      throw new Error(data?.error || data?.message || `Server error (${res.status})`);
     }
     return data;
   } catch (err) {
@@ -451,9 +452,9 @@ function renderJobCards(jobs) {
                 if (matched.includes(s_low)) {
                   const analysis = job.skills_analysis?.[s];
                   let title = 'Fully matched';
-                  if (analysis && analysis.reason === 'concept_match') {
-                    const ctx = analysis.matched_context_terms || [];
-                    title = `Semantic match via [${analysis.concept_group}]: matched related terms (${ctx.join(', ')})`;
+                  if (analysis && (analysis.reason === 'semantic_match' || analysis.reason === 'concept_match' || analysis.semantic)) {
+                    const scorePct = analysis.score ? Math.round(analysis.score * 100) : 100;
+                    title = `Semantic vector match (${scorePct}% similarity with job description context)`;
                     return `<span class="skill-semantic${coreCls}" title="${esc(title)}">${star}${esc(s)}</span>`;
                   }
                   return `<span class="skill-matched${coreCls}" title="Fully matched">${star}${esc(s)}</span>`;
@@ -502,15 +503,17 @@ function renderJobCards(jobs) {
               <p class="job-company">${esc(job.companyName || job.company || '')}</p>
             </div>
           </div>
-          <p class="job-location">📍 ${esc(job.location || 'Location not specified')}</p>
-          <p class="job-date">🕐 ${esc(job.postedAt || job.postedDate || 'Date not available')}</p>
-          ${job.salary ? `<p class="job-salary">💰 ${esc(job.salary)}</p>` : ''}
+          <div class="job-meta">
+            <p class="job-location">📍 ${esc(job.location || 'Location not specified')}</p>
+            <p class="job-date">🕐 ${esc(job.postedAt || job.postedDate || 'Date not available')}</p>
+            ${job.salary ? `<p class="job-salary">💰 ${esc(job.salary)}</p>` : ''}
+          </div>
           <div class="job-badges">
             ${isTarget ? badgeHtml('🎯 Recruiter Network', 'target') : ''}
             ${(job.network_connections && job.network_connections.length > 0) ? badgeHtml(`👥 ${job.network_connections.length} Referral${job.network_connections.length > 1 ? 's' : ''}`, 'network') : ''}
             ${badgeHtml(job.employmentType || job.jobType, 'jobType')}
             ${badgeHtml(job.seniorityLevel || job.experienceLevel, 'experience')}
-            ${badgeHtml(job.applicantsCount ? job.applicantsCount + ' applicants' : '', 'workplace')}
+            ${job.applicantsCount ? badgeHtml(job.applicantsCount + ' Applicants', 'applicants') : ''}
           </div>
           ${skillsHtml}
           ${networkSnippetHtml}
@@ -656,7 +659,7 @@ async function scrapeJobs() {
 
   state.isScraping = true;
   dom.scrapeBtn.disabled = true;
-  dom.scrapeBtn.classList.add('btn-loading');
+  dom.scrapeBtn.classList.add('btn-loading', 'scraping-active');
 
   // Status progress messages
   const statusMessages = [
@@ -713,7 +716,8 @@ async function scrapeJobs() {
     clearInterval(statusInterval);
     state.isScraping = false;
     dom.scrapeBtn.disabled = false;
-    dom.scrapeBtn.classList.remove('btn-loading');
+    dom.scrapeBtn.classList.remove('btn-loading', 'scraping-active');
+    updateQuotas();
   }
 }
 
@@ -726,8 +730,8 @@ async function uploadResume(file) {
   if (!file) return;
 
   // Validate file type
-  if (!file.name.toLowerCase().endsWith('.docx')) {
-    showToast('Please upload a .docx file', 'error');
+  if (!file.name.toLowerCase().match(/\.(docx|pdf)$/)) {
+    showToast('Please upload a .pdf or .docx file', 'error');
     return;
   }
 
@@ -750,6 +754,7 @@ async function uploadResume(file) {
 
     dom.uploadZone.querySelector('.upload-label').textContent = `✅ ${file.name}`;
     dom.uploadZone.querySelector('.upload-hint').textContent = 'Resume parsed successfully';
+    if (dom.resumeRemoveBtn) dom.resumeRemoveBtn.style.display = 'inline-flex';
 
     showToast('Resume uploaded & parsed', 'success');
 
@@ -758,10 +763,47 @@ async function uploadResume(file) {
       matchJobs();
     }
   } catch (err) {
-    dom.uploadZone.classList.remove('uploaded');
-    dom.uploadZone.querySelector('.upload-label').textContent =
-      'Drag & drop your DOCX resume or click to upload';
+    resetResumeUI();
     showToast(err.message, 'error');
+  }
+}
+
+
+function resetResumeUI() {
+  dom.uploadZone.classList.remove('uploaded');
+  dom.uploadZone.querySelector('.upload-label').textContent =
+    'Drag & drop your resume or click to upload';
+  dom.uploadZone.querySelector('.upload-hint').textContent =
+    'Supports .pdf and .docx files up to 5 MB';
+  if (dom.resumeRemoveBtn) dom.resumeRemoveBtn.style.display = 'none';
+  if (dom.resumeFile) dom.resumeFile.value = '';
+}
+
+
+async function removeResume() {
+  try {
+    await apiFetch('/api/resume', { method: 'DELETE' });
+    state.skills = [];
+    state.coreSkills = [];
+    state.resumeText = '';
+    renderSkillTags();
+    resetResumeUI();
+    showToast('Resume attachment removed & cache cleared', 'info');
+
+    // Re-render job cards without scores if present
+    if (state.jobs && state.jobs.length > 0) {
+      state.jobs.forEach((j) => {
+        delete j.match_score;
+        delete j.keyword_score;
+        delete j.tfidf_score;
+        delete j.matched_skills;
+        delete j.partial_skills;
+        delete j.skills_analysis;
+      });
+      renderJobCards(state.jobs);
+    }
+  } catch (err) {
+    showToast('Failed to remove resume: ' + err.message, 'error');
   }
 }
 
@@ -841,6 +883,7 @@ async function matchJobs() {
         jobs: state.jobs,
         skills: state.skills,
         core_skills: state.coreSkills,
+        mode: 'semantic',
       }),
     });
 
@@ -864,6 +907,7 @@ async function matchJobs() {
     state.isMatching = false;
     dom.matchBtn.disabled = false;
     dom.matchBtn.classList.remove('btn-loading');
+    updateQuotas();
   }
 }
 
@@ -879,7 +923,12 @@ async function reloadCache() {
   showSkeletons();
 
   try {
-    const jobsData = await apiFetch('/api/jobs');
+    const params = new URLSearchParams();
+    params.set('limit', '25');
+    if (dom.keywords?.value?.trim()) params.set('keywords', dom.keywords.value.trim());
+    if (dom.location?.value?.trim()) params.set('location', dom.location.value.trim());
+
+    const jobsData = await apiFetch(`/api/jobs?${params.toString()}`);
     const cachedJobs = Array.isArray(jobsData) ? jobsData : (jobsData?.jobs || []);
     if (cachedJobs.length > 0) {
       state.jobs = cachedJobs;
@@ -983,13 +1032,14 @@ function showJobDetail(index) {
   if (hasScore) {
     const keywordScore = job.keyword_score ?? score;
     const tfidfScore = job.tfidf_score ?? score;
+    const methodLabel = job.match_method || 'TF-IDF Similarity';
 
     scoreHtml = `
       <div class="modal-score-display">
         ${buildScoreCircle(score, 80, 5, 'modal-score-circle')}
         <div class="modal-score-label">
           <strong>Overall Match Score</strong>
-          Based on keyword overlap and TF-IDF similarity
+          Based on keyword overlap and ${methodLabel.toLowerCase()}
         </div>
       </div>
       <div class="score-breakdown">
@@ -1005,7 +1055,7 @@ function showJobDetail(index) {
         </div>
         <div class="score-bar-group">
           <div class="score-bar-label">
-            <span>TF-IDF Similarity</span>
+            <span>${methodLabel}</span>
             <span>${Math.round(tfidfScore)}%</span>
           </div>
           <div class="score-bar-track">
@@ -1173,7 +1223,12 @@ async function loadCachedData() {
   state.currentPage = 1;
   // Fetch cached jobs
   try {
-    const jobsData = await apiFetch('/api/jobs');
+    const params = new URLSearchParams();
+    params.set('limit', '25');
+    if (dom.keywords?.value?.trim()) params.set('keywords', dom.keywords.value.trim());
+    if (dom.location?.value?.trim()) params.set('location', dom.location.value.trim());
+
+    const jobsData = await apiFetch(`/api/jobs?${params.toString()}`);
     // Backend returns raw array
     const cachedJobs = Array.isArray(jobsData) ? jobsData : (jobsData?.jobs || []);
     if (cachedJobs.length) {
@@ -1192,6 +1247,10 @@ async function loadCachedData() {
       state.skills = skillsData.skills;
       state.coreSkills = skillsData.core_skills || [];
       renderSkillTags();
+      dom.uploadZone.classList.add('uploaded');
+      dom.uploadZone.querySelector('.upload-label').textContent = '✅ Resume loaded from cache';
+      dom.uploadZone.querySelector('.upload-hint').textContent = `${skillsData.skills.length} skills loaded`;
+      if (dom.resumeRemoveBtn) dom.resumeRemoveBtn.style.display = 'inline-flex';
     }
   } catch {
     // No cached skills — that's fine
@@ -1208,7 +1267,18 @@ document.addEventListener('DOMContentLoaded', () => {
   dom.scrapeBtn.addEventListener('click', scrapeJobs);
 
   // ── Resume File Input (click on upload zone) ──
-  dom.uploadZone.addEventListener('click', () => dom.resumeFile.click());
+  dom.uploadZone.addEventListener('click', (e) => {
+    // Don't trigger file chooser if clicking the remove button
+    if (e.target.closest('#resume-remove-btn')) return;
+    dom.resumeFile.click();
+  });
+
+  if (dom.resumeRemoveBtn) {
+    dom.resumeRemoveBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeResume();
+    });
+  }
 
   dom.resumeFile.addEventListener('change', (e) => {
     if (e.target.files[0]) uploadResume(e.target.files[0]);
@@ -1348,7 +1418,50 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ── Load cached data ──
   loadCachedData();
+
+  // ── Live Quota Tracking ──
+  updateQuotas();
+  setInterval(updateQuotas, 60000);
 });
+
+async function updateQuotas() {
+  try {
+    const res = await fetch('/api/limits');
+    if (!res.ok) return;
+    const data = await res.json();
+
+    // Update Hugging Face live status
+    const hfText = document.getElementById('hf-status-text');
+    if (hfText && data.huggingface) {
+      if (data.huggingface.connected) {
+        const remaining = data.huggingface.remaining_requests;
+        const limit = data.huggingface.limit_requests;
+        hfText.textContent = `HF: ${remaining.toLocaleString()} / ${limit.toLocaleString()} reqs left today`;
+      } else {
+        hfText.textContent = 'HF: Offline / Token Missing';
+      }
+    }
+
+    // Update Apify live status
+    const apifyText = document.getElementById('apify-quota-text');
+    const apifyPill = document.getElementById('apify-quota-pill');
+    if (apifyText && data.apify) {
+      if (data.apify.connected) {
+        const remUsd = typeof data.apify.remaining_usd === 'number' ? data.apify.remaining_usd.toFixed(2) : data.apify.remaining_usd;
+        const totalUsd = typeof data.apify.total_usd === 'number' ? data.apify.total_usd.toFixed(2) : data.apify.total_usd;
+        const usedUsd = typeof data.apify.used_usd === 'number' ? data.apify.used_usd.toFixed(2) : '0.00';
+        apifyText.textContent = `Apify: $${remUsd} left (~${data.apify.scrapes_left} searches)`;
+        if (apifyPill) {
+          apifyPill.title = `Monthly Usage: $${usedUsd} / $${totalUsd} (${data.apify.percent_used}% used) • ~${data.apify.scrapes_left} searches remaining`;
+        }
+      } else {
+        apifyText.textContent = 'Apify: Offline / Limit Reached';
+      }
+    }
+  } catch (e) {
+    console.debug('Quota fetch skipped:', e);
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════
 //  CONNECTIONS MANAGEMENT FUNCTIONS

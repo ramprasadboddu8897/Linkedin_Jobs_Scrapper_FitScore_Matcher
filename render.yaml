@@ -1,0 +1,17 @@
+﻿services:
+  - type: web
+    name: linkedin-job-matcher
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --bind 0.0.0.0:$PORT --timeout 300 server:app
+    plan: free
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: APIFY_ACTOR_ID
+        value: curious_coder/linkedin-jobs-scraper
+      - key: APIFY_TOKEN
+        sync: false
+      - key: HF_API_TOKEN
+        sync: false

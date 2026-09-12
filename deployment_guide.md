@@ -49,14 +49,15 @@ Using Docker on Render enables **extremely fast builds** (often under 10 seconds
 
 ## Step 3: Configure Environment Variables
 
-Render uses environment variables to securely store credentials like the Apify Token.
+Render uses environment variables to securely store credentials like the Apify Token and Hugging Face API Token.
 
 1. On the Render deployment dashboard, go to your service's **Environment** tab.
 2. Click **Add Environment Variable** and enter the following key-value pairs:
-   - `APIFY_TOKEN`: `YOUR_APIFY_API_TOKEN` (Get this from your Apify console under Settings > Integrations)
-   - `APIFY_ACTOR_ID`: `apify/linkedin-jobs-scraper` (Default)
-   - `DEFAULT_KEYWORDS`: `ServiceNow Technical Support Engineer` (Optional default search key)
-   - `DEFAULT_LOCATION`: `India` (Optional default location)
+   - `APIFY_TOKEN`: `YOUR_APIFY_API_TOKEN` (From your Apify console under Settings > Integrations)
+   - `HF_API_TOKEN`: `YOUR_HUGGINGFACE_TOKEN` (Fine-grained token with "Make calls to Inference Providers" permission enabled)
+   - `APIFY_ACTOR_ID`: `curious_coder/linkedin-jobs-scraper` (Default)
+   - `DEFAULT_KEYWORDS`: `ServiceNow Developer` (Optional default search key)
+   - `DEFAULT_LOCATION`: `Hyderabad, India` (Optional default location)
 3. Click **Save Changes**.
 
 ---
@@ -66,10 +67,10 @@ Render uses environment variables to securely store credentials like the Apify T
 Render will build and deploy the application (this takes 2-3 minutes). Once complete, you will receive a public URL (e.g., `https://linkedin-job-matcher.onrender.com`).
 
 - Open the URL in any browser.
-- **Save Scraper Credits**: Drop your `.docx` resume and click **Reload Cache** to immediately score cached jobs or upload new resumes without scraping!
+- **Save Scraper Credits**: Drop your `.pdf` or `.docx` resume and click **Reload Cache** to immediately score cached jobs or upload new resumes without scraping!
 - **Recruiter Network**: The application automatically highlights target companies loaded from `india_remote_companies.md` with glowing cyan borders and badges, including quick links to their careers pages.
 
 ---
 
 ### Why not Netlify?
-Netlify is a static-only hosting provider. While it can host HTML/JS frontends, it cannot run the persistent Python backend needed for Scikit-Learn TF-IDF matching and Word Doc parsing. Render runs the full Python stack seamlessly and for free.
+Netlify is a static-only hosting provider. While it can host HTML/JS frontends, it cannot run the persistent Python backend needed for Hugging Face Semantic AI embeddings and Word/PDF resume parsing. Render runs the full Python stack seamlessly and for free.
