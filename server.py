@@ -416,7 +416,15 @@ def _load_resume_profile() -> None:
     if RESUME_PROFILE_PATH.exists():
         try:
             resume_profile = _load_json(RESUME_PROFILE_PATH)
-            logger.info("Loaded resume profile from %s", RESUME_PROFILE_PATH)
+            # Re-run extraction if full_text is available to upgrade legacy cached profiles
+            if resume_profile.get("full_text"):
+                parsed = _extract_resume_sections(resume_profile["full_text"])
+                if parsed.get("skills"):
+                    resume_profile["skills"] = parsed["skills"]
+                    resume_profile["experience"] = parsed["experience"]
+                    resume_profile["education"] = parsed["education"]
+                    _save_json(resume_profile, RESUME_PROFILE_PATH)
+            logger.info("Loaded resume profile from %s (%d skills)", RESUME_PROFILE_PATH, len(resume_profile.get("skills", [])))
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning("Could not load resume profile: %s", exc)
 
