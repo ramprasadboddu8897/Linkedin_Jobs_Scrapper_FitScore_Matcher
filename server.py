@@ -60,6 +60,10 @@ APIFY_BASE_URL: str = "https://api.apify.com/v2"
 POLL_INTERVAL_SECONDS: int = 5
 MAX_POLL_ATTEMPTS: int = 120  # 10-minute ceiling
 
+# V3: JD-First Intelligence — LLM extraction endpoint
+HF_CHAT_URL: str = "https://router.huggingface.co/hf-inference/v1/chat/completions"
+DEFAULT_LLM_MODEL: str = "meta-llama/Llama-3.2-3B-Instruct"
+
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
@@ -656,6 +660,189 @@ def _enrich_jobs_with_companies(jobs: List[Dict[str, Any]]) -> List[Dict[str, An
 
 
 # ---------------------------------------------------------------------------
+# V3: JD-First Intelligence — LLM Requirement Extraction Engine
+# ---------------------------------------------------------------------------
+
+from concurrent.futures import ThreadPoolExecutor
+
+
+def _extract_jd_skills_with_llm(
+    jd_text: str, existing_cache: Optional[List[str]] = None
+) -> List[str]:
+    """Extract technical requirements from a JD using an LLM with strict JSON parsing and fallback."""
+    # 1. Return cached skills immediately (0 API calls for repeat jobs)
+    if existing_cache and isinstance(existing_cache, list) and len(existing_cache) > 0:
+        return existing_cache
+
+    if not jd_text or len(jd_text.strip()) < 50:
+        return []
+
+    hf_token = _get_hf_token()
+    if not hf_token:
+        logger.warning("HF_API_TOKEN not configured. Falling back to local token extraction.")
+        return _extract_skills_fallback(jd_text)
+
+    # Truncate to 3,500 characters to capture qualifications without exceeding token ceilings
+    truncated_jd = jd_text[:3500]
+
+    prompt = (
+        "You are an ATS technical parser. Extract all technical skills, "
+        "platforms, modules, scripting languages, APIs, frameworks, and tools "
+        "required or preferred in this job description. "
+        'Return strictly a raw JSON array of strings (e.g. ["ITSM", "Script '
+        'Includes", "REST"]). Do not include explanations or markdown code '
+        f"blocks.\n\nJob Description:\n{truncated_jd}"
+    )
+
+    headers = {
+        "Authorization": f"Bearer {hf_token}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": DEFAULT_LLM_MODEL,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You are a strict JSON generator. Output only a valid JSON"
+                    " array of strings."
+                ),
+            },
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.1,
+        "max_tokens": 400,
+        "options": {"wait_for_model": True},
+    }
+
+    for attempt in range(1, 4):
+        try:
+            resp = requests.post(
+                HF_CHAT_URL, headers=headers, json=payload, timeout=6
+            )
+            if resp.status_code == 200:
+                content = resp.json()["choices"][0]["message"]["content"].strip()
+                # Robust bracket extraction — strip markdown wrapping
+                if "[" in content and "]" in content:
+                    content = content[content.find("[") : content.rfind("]") + 1]
+                skills = json.loads(content)
+                return [
+                    s.strip()
+                    for s in skills
+                    if isinstance(s, str) and len(s.strip()) >= 2
+                ]
+            elif resp.status_code in (503, 429):
+                # Model warming up or rate limited — backoff
+                wait = attempt * 3
+                logger.info(
+                    "HF API returned %d for JD extraction. Backing off %ds (attempt %d/3)",
+                    resp.status_code, wait, attempt,
+                )
+                time.sleep(wait)
+                continue
+            else:
+                logger.warning(
+                    "HF Chat API error (%d): %s. Attempt %d/3",
+                    resp.status_code, resp.text[:200], attempt,
+                )
+                time.sleep(2)
+        except requests.exceptions.Timeout:
+            logger.warning("JD extraction attempt %d timed out (6s limit)", attempt)
+            break  # Don't retry on timeout — fall through to fallback
+        except Exception as exc:
+            logger.warning("JD extraction attempt %d failed: %s", attempt, exc)
+            time.sleep(2)
+
+    return _extract_skills_fallback(jd_text)
+
+
+def _extract_skills_fallback(text: str) -> List[str]:
+    """Deterministic regex-based fallback if Hugging Face API is temporarily unavailable."""
+    KNOWN_TECH = [
+        "ITSM", "CSM", "HRSD", "ITOM", "SPM", "AWA",
+        "Business Rules", "Client Scripts", "Script Includes",
+        "UI Policies", "Data Policies", "UI Actions",
+        "Flow Designer", "Service Catalog", "Record Producers",
+        "Access Control Lists", "Transform Maps", "Import Sets",
+        "MID Server", "CMDB", "CSDM",
+        "JavaScript", "GlideAjax", "GlideRecord",
+        "REST", "SOAP", "JSON", "SQL", "HTML", "CSS",
+        "Agile", "ITIL", "Update Sets", "Python",
+    ]
+    text_lower = text.lower()
+    found = []
+    for item in KNOWN_TECH:
+        pattern = r"\b" + re.escape(item.lower()) + r"\b"
+        if re.search(pattern, text_lower):
+            found.append(item)
+    return found
+
+
+def _clean_skill_token(s: str) -> str:
+    """Normalize a skill string for safe token comparison.
+
+    Strips parenthetical annotations and special characters:
+        'Access Control Lists (ACLs)' -> 'access control lists'
+        'C++' -> 'c++'
+    """
+    s = re.sub(r"\(.*?\)", "", s)
+    return re.sub(r"[^\w\s\+\#\.]", "", s).lower().strip()
+
+
+def _compute_jd_match_scores(
+    jd_skills: List[str], candidate_skills: List[str]
+) -> Dict[str, Any]:
+    """Compare JD requirements against the candidate's resume skills using token-exact matching."""
+    cand_tokens = {_clean_skill_token(s) for s in candidate_skills if s.strip()}
+
+    matched = []
+    missing = []
+
+    for skill in jd_skills:
+        clean_skill = _clean_skill_token(skill)
+        if not clean_skill:
+            continue
+        # Exact token match (prevents 'Java' matching 'JavaScript')
+        if clean_skill in cand_tokens:
+            matched.append(skill)
+        else:
+            missing.append(skill)
+
+    total = len(matched) + len(missing)
+    score = round((len(matched) / total) * 100) if total > 0 else 0
+
+    return {
+        "total_requirements": total,
+        "requirements_met_score": score,
+        "jd_matched_skills": matched,
+        "missing_skills": missing,
+    }
+
+
+def _batch_extract_all_jd_skills(jobs: List[Dict[str, Any]]) -> None:
+    """Extract JD skills for all jobs using a controlled concurrency pool.
+
+    Uses 3 parallel workers with a 6-second timeout per job to keep
+    the total extraction time under 30 seconds for 45 jobs.
+    """
+    def _process_single_job(job: Dict[str, Any]) -> None:
+        if not job.get("extracted_jd_skills"):
+            desc = job.get("descriptionText") or job.get("description") or ""
+            job["extracted_jd_skills"] = _extract_jd_skills_with_llm(desc)
+
+    # Only process jobs that don't already have cached extractions
+    uncached = [j for j in jobs if not j.get("extracted_jd_skills")]
+    if not uncached:
+        logger.info("V3: All %d jobs already have cached JD skills — skipping extraction.", len(jobs))
+        return
+
+    logger.info("V3: Extracting JD skills for %d uncached jobs (out of %d total) via 3-worker pool...", len(uncached), len(jobs))
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        executor.map(_process_single_job, uncached)
+    logger.info("V3: JD skill extraction complete.")
+
+
+# ---------------------------------------------------------------------------
 # Resume parsing helpers
 # ---------------------------------------------------------------------------
 
@@ -942,6 +1129,9 @@ def _compute_match_scores(
     if not jobs:
         return []
 
+    # V3: Batch-extract JD skills for all jobs (with concurrency pool)
+    _batch_extract_all_jd_skills(jobs)
+
     core_skills_lower = [c.lower() for c in core_skills] if core_skills else []
 
     # Pre-compute skill and job sentence embeddings if running in semantic mode
@@ -1126,6 +1316,14 @@ def _compute_match_scores(
         enriched["matched_skills"] = keyword_results[idx]["matched_skills"]
         enriched["partial_skills"] = keyword_results[idx]["partial_skills"]
         enriched["skills_analysis"] = keyword_results[idx]["skills_analysis"]
+        # V3: JD-First requirement coverage analysis
+        jd_skills = job.get("extracted_jd_skills", [])
+        jd_analysis = _compute_jd_match_scores(jd_skills, skills)
+        enriched["extracted_jd_skills"] = jd_skills
+        enriched["jd_matched_skills"] = jd_analysis["jd_matched_skills"]
+        enriched["missing_skills"] = jd_analysis["missing_skills"]
+        enriched["total_requirements"] = jd_analysis["total_requirements"]
+        enriched["requirements_met_score"] = jd_analysis["requirements_met_score"]
         scored_jobs.append(enriched)
 
     scored_jobs.sort(key=lambda j: j["match_score"], reverse=True)
@@ -1185,6 +1383,16 @@ def _compute_match_scores(
                      ", ".join(gaps[:10]) or "(none)")
 
     logger.info("=" * 80)
+
+    # V3: Persist extracted JD skills to disk so they survive server restarts
+    if any(j.get("extracted_jd_skills") for j in jobs):
+        cache_file = _latest_jobs_cache()
+        if cache_file:
+            try:
+                _save_json(jobs, cache_file)
+                logger.info("V3: Persisted extracted JD skills to %s", cache_file.name)
+            except Exception as exc:
+                logger.warning("V3: Failed to persist JD skills cache: %s", exc)
 
     return scored_jobs
 
@@ -1776,6 +1984,102 @@ def match_jobs():
     except Exception as exc:
         logger.exception("Error in /api/match")
         return jsonify({"error": str(exc)}), 500
+
+
+# ---------------------------------------------------------------------------
+# V3: Dynamic Resume Tailoring & Interview Prep
+# ---------------------------------------------------------------------------
+
+
+@app.route("/api/tailor", methods=["POST"])
+def tailor_resume():
+    """Generate targeted bullet points and interview prep questions for identified skill gaps."""
+    data = request.get_json() or {}
+    job_title = data.get("job_title", "ServiceNow Developer")
+    company = data.get("company", "Target Organization")
+    missing_skills = data.get("missing_skills", [])
+    current_skills = data.get("current_skills", [])
+
+    hf_token = _get_hf_token()
+    if not hf_token:
+        return jsonify({"error": "Hugging Face token not configured."}), 400
+
+    gaps_str = (
+        ", ".join(missing_skills[:6])
+        if missing_skills
+        else "General platform optimization"
+    )
+
+    prompt = f"""You are an elite ServiceNow Career Coach & ATS Specialist.
+A candidate with 3 years of IT experience (2+ years hands-on in ServiceNow at Phenom People) is applying for:
+Role: {job_title} at {company}.
+
+The employer explicitly requires these technical skill gaps that the candidate's resume currently lacks:
+Missing Gaps: {gaps_str}
+
+Candidate Verified Background: {", ".join(current_skills[:15])}
+
+Task:
+1. "tailored_summary": Write a targeted 3-sentence summary incorporating {company}'s requirements without inventing false job titles.
+2. "tailored_bullets": Exactly 3 achievement bullets showing how the candidate applied these missing skills in platform automation.
+3. "interview_questions": Top 3 technical interview questions the employer will ask for these specific gaps, along with key talking points.
+
+Output strictly valid JSON matching this schema:
+{{
+  "tailored_summary": "string",
+  "tailored_bullets": ["string", "string", "string"],
+  "interview_questions": [
+    {{"question": "string", "key_talking_point": "string"}},
+    {{"question": "string", "key_talking_point": "string"}},
+    {{"question": "string", "key_talking_point": "string"}}
+  ]
+}}"""
+
+    headers = {
+        "Authorization": f"Bearer {hf_token}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": DEFAULT_LLM_MODEL,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are a strict JSON generator. Return only raw JSON.",
+            },
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.2,
+        "max_tokens": 700,
+        "options": {"wait_for_model": True},
+    }
+
+    for attempt in range(1, 4):
+        try:
+            resp = requests.post(HF_CHAT_URL, headers=headers, json=payload, timeout=35)
+            if resp.status_code == 200:
+                content = resp.json()["choices"][0]["message"]["content"].strip()
+                # Robust JSON extraction — strip markdown wrapping
+                if "{" in content and "}" in content:
+                    content = content[content.find("{") : content.rfind("}") + 1]
+                return jsonify(json.loads(content)), 200
+            elif resp.status_code in (503, 429):
+                wait = attempt * 5
+                logger.info(
+                    "Tailor API: HF returned %d. Backing off %ds (attempt %d/3)",
+                    resp.status_code, wait, attempt,
+                )
+                time.sleep(wait)
+                continue
+            else:
+                logger.warning("Tailor API: HF error %d: %s", resp.status_code, resp.text[:200])
+                return jsonify({"error": f"LLM error status {resp.status_code}"}), 502
+        except Exception as exc:
+            logger.warning("Tailor API attempt %d failed: %s", attempt, exc)
+            if attempt == 3:
+                return jsonify({"error": str(exc)}), 500
+            time.sleep(3)
+
+    return jsonify({"error": "LLM service unavailable after 3 attempts"}), 503
 
 
 # ---------------------------------------------------------------------------

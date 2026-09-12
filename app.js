@@ -452,6 +452,7 @@ function renderJobCards(jobs) {
         if (type === 'target') extraClass = ' badge-target-company';
         if (type === 'network') extraClass = ' badge-network';
         if (type === 'active-recruiter') extraClass = ' badge-active-recruiter';
+        if (type === 'coverage') extraClass = ' badge-coverage';
         return `<span class="badge${extraClass}">${esc(label)}</span>`;
       };
 
@@ -572,8 +573,15 @@ function renderJobCards(jobs) {
             ${badgeHtml(job.employmentType || job.jobType, 'jobType')}
             ${badgeHtml(job.seniorityLevel || job.experienceLevel, 'experience')}
             ${job.applicantsCount ? badgeHtml(job.applicantsCount + ' Applicants', 'applicants') : ''}
+            ${(job.total_requirements > 0) ? badgeHtml(`📊 ${job.requirements_met_score}% Coverage (${(job.jd_matched_skills || []).length}/${job.total_requirements})`, 'coverage') : ''}
           </div>
           ${skillsHtml}
+          ${(job.missing_skills && job.missing_skills.length > 0) ? `
+            <div class="job-skills" style="margin-top:0.25rem">
+              ${job.missing_skills.slice(0, 4).map(s => `<span class="skill-gap">🔴 ${esc(s)}</span>`).join('')}
+              ${job.missing_skills.length > 4 ? `<span style="font-size:0.7rem;color:var(--text-muted)"> +${job.missing_skills.length - 4} more gaps</span>` : ''}
+            </div>
+          ` : ''}
           ${networkSnippetHtml}
           <div class="card-actions">
             <button class="btn-details" onclick="showJobDetail(${globalIndex})">View Details</button>
@@ -1285,6 +1293,31 @@ function showJobDetail(index) {
       ${skillsHtml}
       ${referralsHtml}
       ${recruitersHtml}
+      ${(job.total_requirements > 0) ? `
+        <div style="margin: 1.5rem 0;">
+          <h4 style="font-size:0.85rem; font-weight:600; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.04em; margin-bottom:0.75rem;">📊 JD Requirements Coverage — ${job.requirements_met_score}% (${(job.jd_matched_skills || []).length}/${job.total_requirements})</h4>
+          <div class="jd-requirements-grid">
+            <div>
+              <p style="font-size:0.75rem; font-weight:600; color:var(--accent-emerald); margin-bottom:0.4rem;">🟢 Verified on Resume (${(job.jd_matched_skills || []).length})</p>
+              <div class="modal-skills-list">
+                ${(job.jd_matched_skills || []).map(s => `<span class="skill-matched">${esc(s)}</span>`).join('')}
+              </div>
+            </div>
+            <div>
+              <p style="font-size:0.75rem; font-weight:600; color:#f43f5e; margin-bottom:0.4rem;">🔴 Missing Gaps — Required by Employer (${(job.missing_skills || []).length})</p>
+              <div class="modal-skills-list">
+                ${(job.missing_skills || []).map(s => `<span class="skill-gap">${esc(s)}</span>`).join('')}
+              </div>
+            </div>
+          </div>
+        </div>
+        ${(job.missing_skills && job.missing_skills.length > 0) ? `
+          <button class="btn-tailor-primary" id="btn-trigger-tailor" onclick="generateTailoredKit('${esc((job.title || '').replace(/'/g, ''))}', '${esc((job.companyName || job.company || '').replace(/'/g, ''))}', ${JSON.stringify(job.missing_skills || []).replace(/'/g, '&apos;')})">
+            ✨ Tailor Resume & Prep Interview for this Role
+          </button>
+          <div id="tailor-result-container" hidden style="margin-top:1rem;"></div>
+        ` : ''}
+      ` : ''}
       <div class="modal-description">${descriptionHtml}</div>
       ${(job.applyUrl || job.link)
         ? `<a class="modal-apply-btn" href="${esc(job.applyUrl || job.link)}" target="_blank" rel="noopener">Apply for this position →</a>`
@@ -1305,6 +1338,76 @@ function closeModal() {
   dom.modal.hidden = true;
   document.body.style.overflow = '';
 }
+
+// ═══════════════════════════════════════════════════════════════
+//  V3: DYNAMIC RESUME TAILORING & INTERVIEW PREP
+// ═══════════════════════════════════════════════════════════════
+
+async function generateTailoredKit(jobTitle, company, missingSkills) {
+  const container = document.getElementById('tailor-result-container');
+  const btn = document.getElementById('btn-trigger-tailor');
+  if (!container || !btn) return;
+
+  btn.disabled = true;
+  btn.innerHTML = `<span class="status-spinner" style="width:16px;height:16px;border-width:2px"></span> Analyzing JD & Generating Kit…`;
+  container.hidden = false;
+  container.innerHTML = `<p style="font-size:0.85rem; color:var(--text-secondary)">Synthesizing tailored experience bullets & interview questions…</p>`;
+
+  try {
+    const res = await apiFetch('/api/tailor', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        job_title: jobTitle,
+        company: company,
+        missing_skills: missingSkills,
+        current_skills: state.skills
+      })
+    });
+
+    const summaryEscaped = esc(res.tailored_summary || '');
+    const bulletsHtml = (res.tailored_bullets || []).map(b => {
+      const bulletEscaped = esc(b);
+      return `
+        <li style="margin-bottom:0.5rem">
+          ${bulletEscaped}
+          <button class="btn-copy-sm" style="margin-left:0.5rem" onclick="navigator.clipboard.writeText(this.previousSibling.textContent.trim()); showToast('Bullet copied!', 'success')">📋</button>
+        </li>
+      `;
+    }).join('');
+
+    const questionsHtml = (res.interview_questions || []).map(q => `
+      <div class="interview-qa-block">
+        <strong style="color:var(--text-primary); font-size:0.85rem">Q: ${esc(q.question || '')}</strong>
+        <p style="color:var(--text-secondary); font-size:0.8rem; margin-top:0.25rem">💡 <em>Suggested Talking Point:</em> ${esc(q.key_talking_point || '')}</p>
+      </div>
+    `).join('');
+
+    container.innerHTML = `
+      <div class="tailor-card">
+        <h4 style="color:var(--accent-cyan); margin-bottom:0.4rem;">🎯 Targeted Professional Summary</h4>
+        <div class="tailor-text">${summaryEscaped}</div>
+        <button class="btn-copy-sm" style="margin-top:0.5rem" onclick="navigator.clipboard.writeText(document.querySelector('.tailor-text').textContent); showToast('Summary copied!', 'success')">📋 Copy Summary</button>
+
+        <h4 style="color:var(--accent-cyan); margin: 1rem 0 0.4rem;">💼 Recommended Experience Bullets (Bridging Gaps)</h4>
+        <ul style="padding-left:1.2rem; font-size:0.85rem; line-height:1.5;">
+          ${bulletsHtml}
+        </ul>
+
+        <h4 style="color:var(--accent-cyan); margin: 1rem 0 0.4rem;">🎙️ Top Interview Questions to Expect</h4>
+        <div style="display:flex; flex-direction:column; gap:0.5rem;">
+          ${questionsHtml}
+        </div>
+      </div>
+    `;
+  } catch (err) {
+    container.innerHTML = `<p style="color:var(--accent-rose); font-size:0.85rem">Failed to generate tailor kit: ${esc(err.message)}</p>`;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `✨ Regenerate Tailored Kit`;
+  }
+}
+window.generateTailoredKit = generateTailoredKit;
 
 
 // ═══════════════════════════════════════════════════════════════
