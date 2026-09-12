@@ -50,6 +50,11 @@ BASE_DIR: Path = Path(__file__).resolve().parent
 DATA_DIR: Path = BASE_DIR / "data"
 CONFIG_PATH: Path = BASE_DIR / "config.json"
 RESUME_PROFILE_PATH: Path = DATA_DIR / "resume_profile.json"
+CAREER_SITES_PATH: Path = DATA_DIR / "career_sites.json"
+RECRUITERS_INDEX_PATH: Path = DATA_DIR / "recruiters_index.json"
+
+_career_sites_cache: Optional[Dict[str, str]] = None
+_recruiters_index_cache: Optional[Dict[str, List[Dict[str, Any]]]] = None
 
 APIFY_BASE_URL: str = "https://api.apify.com/v2"
 POLL_INTERVAL_SECONDS: int = 5
@@ -474,62 +479,122 @@ def _load_india_remote_companies() -> List[Dict[str, Any]]:
 
 
 def _clean_company_name(name: str) -> str:
-    """Clean company name by removing punctuation and corporate suffixes."""
+    """Clean company name by removing punctuation, underscores, and corporate suffixes."""
     if not name:
         return ""
-    name = name.lower()
-    name = re.sub(r'[^\w\s]', '', name)
+    name = name.lower().strip()
+    name = re.sub(r"[_\-]+", " ", name)
+    name = re.sub(r'[^\w\s]', ' ', name)
     words = name.split()
-    suffixes = {"inc", "llc", "ltd", "co", "corp", "corporation", "pvt", "private", "limited", "solutions", "services", "technologies", "technology"}
+    suffixes = {
+        "inc", "llc", "ltd", "co", "corp", "corporation", "pvt", "private",
+        "limited", "solutions", "services", "technologies", "technology",
+        "careers", "career", "group"
+    }
     cleaned_words = [w for w in words if w not in suffixes]
     return " ".join(cleaned_words)
 
 
+def _load_career_and_recruiter_indices() -> tuple[Dict[str, str], Dict[str, List[Dict[str, Any]]]]:
+    """Loads and caches career portal sites and recruiter index in memory."""
+    global _career_sites_cache, _recruiters_index_cache
+
+    if _career_sites_cache is None:
+        if CAREER_SITES_PATH.exists():
+            try:
+                with open(CAREER_SITES_PATH, "r", encoding="utf-8") as f:
+                    _career_sites_cache = json.load(f)
+            except Exception as e:
+                logger.warning("Could not read career_sites.json: %s", e)
+                _career_sites_cache = {}
+        else:
+            _career_sites_cache = {}
+
+    if _recruiters_index_cache is None:
+        if RECRUITERS_INDEX_PATH.exists():
+            try:
+                with open(RECRUITERS_INDEX_PATH, "r", encoding="utf-8") as f:
+                    _recruiters_index_cache = json.load(f)
+            except Exception as e:
+                logger.warning("Could not read recruiters_index.json: %s", e)
+                _recruiters_index_cache = {}
+        else:
+            _recruiters_index_cache = {}
+
+    return _career_sites_cache, _recruiters_index_cache
+
+
 def _enrich_jobs_with_companies(jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Add is_partner_company and partner_company_info to jobs that match target list."""
-    companies = _load_india_remote_companies()
-    if not companies:
-        return jobs
+    """Enriches jobs with career portal URLs, active recruiter contacts, and partner flags."""
+    career_sites, recruiters_index = _load_career_and_recruiter_indices()
+    india_remote_companies = _load_india_remote_companies()
 
     enriched_jobs = []
     for job in jobs:
         company_name = job.get("companyName") or job.get("company") or ""
         cleaned_job = _clean_company_name(company_name)
+        job_tokens = set(cleaned_job.split()) if cleaned_job else set()
 
-        is_match = False
-        match_info = None
+        career_url: Optional[str] = None
+        recruiters: List[Dict[str, Any]] = []
+        is_partner = False
+        partner_info = None
 
         if cleaned_job:
-            for comp in companies:
+            # 1. Match Career Site Portal URL (Direct, Token match e.g. 'aaa', or Substring)
+            if cleaned_job in career_sites:
+                career_url = career_sites[cleaned_job]
+            else:
+                for c_name, u in career_sites.items():
+                    if c_name in job_tokens or (len(c_name) >= 4 and (c_name in cleaned_job or cleaned_job in c_name)):
+                        career_url = u
+                        break
+
+            # 2. Match Active Recruiters (Direct, Token match e.g. 'aaa', or Substring)
+            if cleaned_job in recruiters_index:
+                recruiters = recruiters_index[cleaned_job]
+            else:
+                for r_comp, r_list in recruiters_index.items():
+                    if r_comp in job_tokens or (len(r_comp) >= 4 and (r_comp in cleaned_job or cleaned_job in r_comp)):
+                        recruiters = r_list
+                        break
+
+            # 3. Match India Remote Target Companies
+            for comp in india_remote_companies:
                 base = comp["base_name"].lower().replace("-", "")
+                base_clean = _clean_company_name(base)
                 
-                # Direct match
-                if cleaned_job == base:
-                    is_match = True
-                    match_info = comp
+                # Direct match or Token match
+                if (
+                    cleaned_job == base
+                    or cleaned_job == base_clean
+                    or base in job_tokens
+                    or base_clean in job_tokens
+                ):
+                    is_partner = True
+                    partner_info = comp
                     break
 
                 # Substring match (base in job_company or vice-versa)
                 if len(base) >= 4 and (base in cleaned_job or cleaned_job in base):
-                    is_match = True
-                    match_info = comp
+                    is_partner = True
+                    partner_info = comp
                     break
 
                 # Check collapsed spaces match
                 raw_company_clean = re.sub(r'[^\w\s]', '', company_name.lower()).replace(" ", "")
                 if base in raw_company_clean or raw_company_clean in base:
                     if len(base) >= 4 or base == raw_company_clean:
-                        is_match = True
-                        match_info = comp
+                        is_partner = True
+                        partner_info = comp
                         break
 
         enriched = {**job}
-        if is_match:
-            enriched["is_partner_company"] = True
-            enriched["partner_company_info"] = match_info
-        else:
-            enriched["is_partner_company"] = False
-            enriched["partner_company_info"] = None
+        enriched["career_site_url"] = career_url
+        enriched["active_recruiters"] = recruiters[:3] if recruiters else []
+        enriched["has_active_recruiters"] = bool(recruiters)
+        enriched["is_partner_company"] = is_partner
+        enriched["partner_company_info"] = partner_info
 
         enriched_jobs.append(enriched)
 
@@ -1597,6 +1662,7 @@ def _startup() -> None:
     _ensure_data_dir()
     _load_resume_profile()
     _load_india_remote_companies()
+    _load_career_and_recruiter_indices()
 
 
 # Run startup initialization immediately so gunicorn workers initialize properly

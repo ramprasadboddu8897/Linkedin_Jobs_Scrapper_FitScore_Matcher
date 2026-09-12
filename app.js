@@ -388,6 +388,26 @@ window.toggleCoreSkill = toggleCoreSkill;
 
 
 // ═══════════════════════════════════════════════════════════════
+//  RECRUITER OUTREACH & TELEMETRY
+// ═══════════════════════════════════════════════════════════════
+
+/** Generate mailto: link for recruiter direct outreach */
+function buildRecruiterMailto(recruiterEmail, recruiterName, companyName, jobTitle) {
+  const subject = encodeURIComponent(
+    `Application: ServiceNow Developer — ${companyName || 'Hiring Team'}`
+  );
+  const body = encodeURIComponent(
+    `Hi ${recruiterName || 'Hiring Team'},\r\n\r\n` +
+    `I noticed the ${jobTitle || 'ServiceNow Developer'} position at ${companyName || 'your organization'} and wanted to reach out directly.\r\n\r\n` +
+    `With 3 years of hands-on experience in enterprise application workflows, scoped applications, platform policies, and integrations, I am confident I can contribute effectively to your development team.\r\n\r\n` +
+    `I have attached my resume for your review and would welcome the opportunity to connect.\r\n\r\n` +
+    `Best regards,\r\nRam`
+  );
+  return `mailto:${recruiterEmail || ''}?subject=${subject}&body=${body}`;
+}
+
+
+// ═══════════════════════════════════════════════════════════════
 //  RENDER: JOB CARDS
 // ═══════════════════════════════════════════════════════════════
 
@@ -431,6 +451,7 @@ function renderJobCards(jobs) {
         if (type === 'jobType' && label.toLowerCase().includes('full')) extraClass = ' badge-fulltime';
         if (type === 'target') extraClass = ' badge-target-company';
         if (type === 'network') extraClass = ' badge-network';
+        if (type === 'active-recruiter') extraClass = ' badge-active-recruiter';
         return `<span class="badge${extraClass}">${esc(label)}</span>`;
       };
 
@@ -494,6 +515,42 @@ function renderJobCards(jobs) {
         `;
       }
 
+      // Career Portal Button
+      const careerPortalHtml = job.career_site_url
+        ? `<a class="btn-portal" href="${esc(job.career_site_url)}" target="_blank" rel="noopener">🌐 View on Portal</a>`
+        : '';
+
+      // Active Recruiters Snippet
+      let recruitersSnippetHtml = '';
+      if (job.active_recruiters && job.active_recruiters.length > 0) {
+        recruitersSnippetHtml = `
+          <div class="job-recruiters-section">
+            <div class="recruiters-header">
+              <span>📬 Active Hiring Team</span>
+            </div>
+            <div class="recruiters-list">
+              ${job.active_recruiters.map(r => {
+                const mailtoLink = buildRecruiterMailto(r.email, r.name, job.companyName || job.company, job.title);
+                const views = r.profilesViewed ? ` · ${r.profilesViewed} views` : '';
+                const status = r.status || 'Hiring Team Contact';
+                const badgeClass = status.toLowerCase().includes('active') ? 'active-now' : 'contact';
+                return `
+                  <div class="recruiter-chip">
+                    <div class="recruiter-meta">
+                      <strong>${esc(r.name)}</strong>
+                      <span class="recruiter-badge ${badgeClass}">
+                        ${esc(status)}${esc(views)}
+                      </span>
+                    </div>
+                    <a class="btn-email-recruiter" href="${mailtoLink}">✉️ Email</a>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </div>
+        `;
+      }
+
       return `
         <div class="job-card${targetClass}" style="animation-delay:${index * 0.05}s">
           <div class="card-header">
@@ -511,6 +568,7 @@ function renderJobCards(jobs) {
           <div class="job-badges">
             ${isTarget ? badgeHtml('🎯 Recruiter Network', 'target') : ''}
             ${(job.network_connections && job.network_connections.length > 0) ? badgeHtml(`👥 ${job.network_connections.length} Referral${job.network_connections.length > 1 ? 's' : ''}`, 'network') : ''}
+            ${job.has_active_recruiters ? badgeHtml(`📬 ${job.active_recruiters.length} Active Recruiter${job.active_recruiters.length > 1 ? 's' : ''}`, 'active-recruiter') : ''}
             ${badgeHtml(job.employmentType || job.jobType, 'jobType')}
             ${badgeHtml(job.seniorityLevel || job.experienceLevel, 'experience')}
             ${job.applicantsCount ? badgeHtml(job.applicantsCount + ' Applicants', 'applicants') : ''}
@@ -519,12 +577,14 @@ function renderJobCards(jobs) {
           ${networkSnippetHtml}
           <div class="card-actions">
             <button class="btn-details" onclick="showJobDetail(${globalIndex})">View Details</button>
+            ${careerPortalHtml}
             ${
               (job.applyUrl || job.link)
                 ? `<a class="btn-apply" href="${esc(job.applyUrl || job.link)}" target="_blank" rel="noopener">Apply →</a>`
                 : ''
             }
           </div>
+          ${recruitersSnippetHtml}
         </div>
       `;
     })
@@ -1185,9 +1245,41 @@ Best,
         <a href="${esc(job.partner_company_info.url)}" target="_blank" rel="noopener" style="font-size:0.8rem; color:#fff; background:var(--accent-cyan); border-radius:var(--radius-sm); padding:0.25rem 0.6rem; text-decoration:none; margin-left:0.5rem">Careers Link ↗</a>
       </div>
     ` : ''}
+    ${job.career_site_url ? `
+      <div style="margin: -0.5rem 0 1rem; display: inline-flex; align-items: center; gap: 0.5rem;">
+        <a class="btn-portal" href="${esc(job.career_site_url)}" target="_blank" rel="noopener">🌐 View on Official Career Portal ↗</a>
+      </div>
+    ` : ''}
     ${scoreHtml}
     ${skillsHtml}
     ${referralsHtml}
+    ${job.active_recruiters && job.active_recruiters.length > 0 ? `
+      <div class="job-recruiters-section" style="margin: 1rem 0;">
+        <div class="recruiters-header">
+          <span>📬 Active Hiring Team Contacts (${job.active_recruiters.length})</span>
+        </div>
+        <div class="recruiters-list">
+          ${job.active_recruiters.map(r => {
+            const mailtoLink = buildRecruiterMailto(r.email, r.name, job.companyName || job.company, job.title);
+            const views = r.profilesViewed ? ` · ${r.profilesViewed} views` : '';
+            const status = r.status || 'Hiring Team Contact';
+            const badgeClass = status.toLowerCase().includes('active') ? 'active-now' : 'contact';
+            return `
+              <div class="recruiter-chip">
+                <div class="recruiter-meta">
+                  <strong>${esc(r.name)}</strong>
+                  <span style="font-size:0.75rem; color:var(--text-secondary)">(${esc(r.email)})</span>
+                  <span class="recruiter-badge ${badgeClass}">
+                    ${esc(status)}${esc(views)}
+                  </span>
+                </div>
+                <a class="btn-email-recruiter" href="${mailtoLink}">✉️ Email Direct</a>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    ` : ''}
     <div class="modal-description">
       ${descriptionHtml}
     </div>

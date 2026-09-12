@@ -1,9 +1,9 @@
-﻿services:
+services:
   - type: web
     name: linkedin-job-matcher
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn --bind 0.0.0.0:$PORT --timeout 300 server:app
+    startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120 server:app
     plan: free
     autoDeploy: true
     envVars:

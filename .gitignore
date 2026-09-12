@@ -1,6 +1,8 @@
 config.json
 __pycache__/
 *.pyc
-data/*.json
+data/*
+!data/career_sites.json
+!data/recruiters_index.json
 .env
 venv/

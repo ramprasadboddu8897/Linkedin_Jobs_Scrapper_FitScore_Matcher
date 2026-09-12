@@ -28,4 +28,4 @@ COPY . /app/
 EXPOSE 5000
 
 # Run with Gunicorn production server binding to dynamic Render PORT
-CMD gunicorn --bind 0.0.0.0:$PORT --timeout 300 server:app
+CMD gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120 server:app
