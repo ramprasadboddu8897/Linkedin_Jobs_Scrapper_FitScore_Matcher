@@ -779,33 +779,66 @@ def _semantic_skill_match(
     job_description_lower: str,
     skill_embedding: Optional[List[float]] = None,
     job_sentence_embeddings: Optional[List[List[float]]] = None,
-    threshold: float = 0.75,
-    partial_threshold: float = 0.55
+    threshold: float = 0.65,  # Lowered from 0.75 to 0.65 for short-to-long text comparisons
+    partial_threshold: float = 0.50,
 ) -> Dict[str, Any]:
-    """Semantic skill matcher combining exact-match fast path with embedding cosine similarity.
-    
-    1. Exact Match Fast Path: If skill appears literally with word boundary check, return matched.
-    2. Vector Cosine Similarity: Compare skill vector to JD sentence vectors.
-    """
+    """Semantic skill matcher combining exact match, acronym aliases, embeddings, and token fallback."""
     skill_lower = skill_name.lower().strip()
     if not skill_lower:
-        return {"matched": False, "partial": False, "score": 0.0, "reason": "empty"}
+        return {"matched": False, "partial": False, "score": 0.0}
 
-    # 1. Exact Match Fast Path
-    pattern = r'\b' + re.escape(skill_lower) + r'\b'
+    # 1. Fixed Regex: Only apply \b if character is alphanumeric
+    prefix = r"\b" if re.match(r"^\w", skill_lower) else ""
+    suffix = r"\b" if re.search(r"\w$", skill_lower) else ""
+    pattern = prefix + re.escape(skill_lower) + suffix
+
     if re.search(pattern, job_description_lower):
-        return {
-            "matched": True,
-            "partial": False,
-            "score": 1.0,
-            "reason": "exact_match",
-            "semantic": False
-        }
+        return {"matched": True, "partial": False, "score": 1.0, "reason": "exact_match", "semantic": False}
 
-    # 2. Vector Cosine Similarity Fallback
+    # 2. Acronym / Parenthetical / Slash Alias Check (e.g. 'Access Control Lists (ACLs)', 'HTML/CSS')
+    aliases = [skill_lower]
+    if "(" in skill_lower and ")" in skill_lower:
+        inner = re.findall(r"\((.*?)\)", skill_lower)
+        outer = re.sub(r"\(.*?\)", "", skill_lower).strip()
+        aliases.extend([outer] + inner)
+
+    # Handle slashed or ampersand compounds (e.g. 'HTML/CSS' -> 'HTML', 'CSS'; 'Agile/Scrum' -> 'Agile', 'Scrum')
+    if "/" in skill_lower or "&" in skill_lower:
+        for part in re.split(r"[/&]", skill_lower):
+            p = part.strip()
+            if p and len(p) >= 2:
+                aliases.append(p)
+
+    # Check standard variations (HTML5 -> html, CSS3 -> css, etc.)
+    if "html" in skill_lower:
+        aliases.append("html")
+    if "css" in skill_lower:
+        aliases.append("css")
+    if "rest" in skill_lower:
+        aliases.append("rest")
+    if "itil" in skill_lower:
+        aliases.append("itil")
+
+    for alias in aliases:
+        alias_clean = alias.strip()
+        if not alias_clean:
+            continue
+        a_prefix = r"\b" if re.match(r"^\w", alias_clean) else ""
+        a_suffix = r"(?:\d+)?\b" if re.search(r"\w$", alias_clean) else ""
+        if re.search(a_prefix + re.escape(alias_clean) + a_suffix, job_description_lower):
+            return {
+                "matched": True,
+                "partial": False,
+                "score": 0.95,
+                "reason": "alias_match",
+                "semantic": False
+            }
+
+    # 3. Embedding Cosine Similarity with Calibrated 0.65 Threshold
     if skill_embedding and job_sentence_embeddings:
         try:
             import numpy as np
+
             skill_vec = np.array(skill_embedding).reshape(1, -1)
             sentence_vecs = np.array(job_sentence_embeddings)
             sims = cosine_similarity(skill_vec, sentence_vecs)[0]
@@ -817,7 +850,7 @@ def _semantic_skill_match(
                     "partial": False,
                     "score": round(max_sim, 4),
                     "reason": "semantic_match",
-                    "semantic": True
+                    "semantic": True,
                 }
             elif max_sim >= partial_threshold:
                 return {
@@ -825,20 +858,12 @@ def _semantic_skill_match(
                     "partial": True,
                     "score": round(max_sim, 4),
                     "reason": "semantic_partial",
-                    "semantic": True
-                }
-            else:
-                return {
-                    "matched": False,
-                    "partial": False,
-                    "score": round(max_sim, 4),
-                    "reason": "semantic_low",
-                    "semantic": False
+                    "semantic": True,
                 }
         except Exception as exc:
-            logger.warning("Error calculating semantic skill match for '%s': %s", skill_name, exc)
+            logger.warning("Error in semantic match for '%s': %s", skill_name, exc)
 
-    # 3. Token-based fallback if no embeddings or vector similarity below thresholds
+    # 4. Token-based fallback if no embeddings or vector similarity below thresholds
     skill_clean = re.sub(r'[^\w\s\+\#\-\.\/]', ' ', skill_lower)
     tokens = [t.strip() for t in skill_clean.split() if t.strip()]
     if not tokens:
@@ -850,7 +875,9 @@ def _semantic_skill_match(
     matched_count = 0
     token_details = []
     for token in filtered_tokens:
-        tok_pattern = r'\b' + re.escape(token) + r'\b'
+        tok_prefix = r"\b" if re.match(r"^\w", token) else ""
+        tok_suffix = r"\b" if re.search(r"\w$", token) else ""
+        tok_pattern = tok_prefix + re.escape(token) + tok_suffix
         tok_matched = bool(re.search(tok_pattern, job_description_lower))
         if tok_matched:
             matched_count += 1
